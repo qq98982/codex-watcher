@@ -114,11 +114,12 @@ const indexHTML = `<!doctype html>
         var ts = (m.ts ? new Date(m.ts).toLocaleString() : '');
         var model = (m.model ? '<span class="pill">' + m.model + '</span>' : '');
         var html = renderContent(m);
+        if (!html || !html.trim()) return '';
         return '<div class="msg">'
           + '<div class="meta"><span class="pill ' + rolePillClass + '">' + (role || 'message') + '</span> <span>' + ts + '</span> ' + model + '</div>'
           + '<div class="content">' + html + '</div>'
           + '</div>';
-      }).join('');
+      }).filter(Boolean).join('');
       try { hljs.highlightAll(); } catch(e) {}
     }
 
@@ -137,7 +138,7 @@ const indexHTML = `<!doctype html>
       } else if (m && m.raw && typeof m.raw.text === 'string') {
         md = m.raw.text;
       } else {
-        md = '(non-text content omitted)';
+        return '';
       }
       try { return DOMPurify.sanitize(marked.parse(md)); } catch(e) { return escapeHTML(md); }
     }
