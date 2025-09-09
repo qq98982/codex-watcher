@@ -1,0 +1,30 @@
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Editors/IDE
+.idea/
+.vscode/
+
+# Env/config
+.env
+.env.*
+
+# Go build outputs
+bin/
+build/
+dist/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Local binaries
+/codex-watcher
+
+# Caches and logs
+.cache/
+*.log
