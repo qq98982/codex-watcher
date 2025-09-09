@@ -1,0 +1,30 @@
+name: Bug report
+description: File a bug report
+labels: [bug]
+assignees: []
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Also tell us what you expected to happen.
+      placeholder: Describe the bug
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Provide steps/code/logs to reproduce the issue.
+      placeholder: 1. Go to ...\n2. Run ...\n3. See error
+  - type: input
+    id: version
+    attributes:
+      label: Go version
+      placeholder: go version
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      render: shell
+
