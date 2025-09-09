@@ -138,17 +138,17 @@ const indexHTML = `<!doctype html>
               if (part.type === 'text' && part.text) return part.text;
               if (part.type === 'input_text' && part.text) return part.text;
               if (part.type === 'output_text' && part.text) return part.text;
-              if (part.type === 'tool_result' && part.content) return 'Tool result:\n\n```\n' + tryString(part.content) + '\n```';
+              if (part.type === 'tool_result' && part.content) return 'Tool result:\n\n~~~\n' + tryString(part.content) + '\n~~~';
             }
             return tryString(part);
           }).join('\n\n');
         } else if (typeof c === 'string') {
           md = c;
         } else if (typeof c === 'object') {
-          md = '```json\n' + tryString(c) + '\n```';
+          md = '~~~json\n' + tryString(c) + '\n~~~';
         }
       } else if (m && (m.tool_name || m.type === 'tool_call')) {
-        md = '**' + (m.tool_name || 'tool') + '** call\n\n```json\n' + tryString(m.raw && (m.raw.arguments || m.raw.args || m.raw)) + '\n```';
+        md = '**' + (m.tool_name || 'tool') + '** call\n\n~~~json\n' + tryString(m.raw && (m.raw.arguments || m.raw.args || m.raw)) + '\n~~~';
       } else {
         md = tryString(m && m.raw);
       }
