@@ -183,7 +183,7 @@ func (x *Indexer) ingestLine(sessionID, path, line string) {
         ID:        stringOr(raw["id"]),
         SessionID: firstNonEmpty(stringOr(raw["session_id"]), sessionID),
         Role:      stringOr(raw["role"]),
-        Content:   stringOr(raw["content"]),
+        Content:   extractText(raw),
         Model:     stringOr(raw["model"]),
         Type:      stringOr(raw["type"]),
         ToolName:  stringOr(raw["tool_name"]),
@@ -219,13 +219,8 @@ func (x *Indexer) ingestLine(sessionID, path, line string) {
         if t := stringOr(raw["title"]); strings.TrimSpace(t) != "" {
             s.Title = trimTitle(t)
         } else {
-            // otherwise, take the first meaningful user/assistant content
-            cand := ""
-            if msg.Role == "user" && strings.TrimSpace(msg.Content) != "" {
-                cand = msg.Content
-            } else if strings.TrimSpace(msg.Content) != "" {
-                cand = msg.Content
-            }
+            // otherwise, take text-only extracted content
+            cand := strings.TrimSpace(msg.Content)
             if cand != "" {
                 s.Title = trimTitle(cand)
             }
@@ -410,4 +405,50 @@ func trimTitle(s string) string {
         return s
     }
     return s[:80] + "…"
+}
+
+// extractText returns only human-readable text content from a raw JSONL line.
+// Rules:
+// - If content is a string, return it.
+// - If content is an array, concatenate parts with type=="text" and .text string.
+// - Else if raw["text"] is string, return it.
+// - Otherwise return empty.
+func extractText(raw map[string]any) string {
+    if raw == nil {
+        return ""
+    }
+    if v, ok := raw["content"]; ok {
+        if s, ok := v.(string); ok {
+            return s
+        }
+        if arr, ok := v.([]any); ok {
+            var b strings.Builder
+            for _, el := range arr {
+                if ss, ok := el.(string); ok {
+                    if strings.TrimSpace(ss) != "" {
+                        if b.Len() > 0 {
+                            b.WriteString("\n\n")
+                        }
+                        b.WriteString(ss)
+                    }
+                    continue
+                }
+                if m, ok := el.(map[string]any); ok {
+                    if t, _ := m["type"].(string); t == "text" {
+                        if tx, _ := m["text"].(string); strings.TrimSpace(tx) != "" {
+                            if b.Len() > 0 {
+                                b.WriteString("\n\n")
+                            }
+                            b.WriteString(tx)
+                        }
+                    }
+                }
+            }
+            return b.String()
+        }
+    }
+    if s, ok := raw["text"].(string); ok {
+        return s
+    }
+    return ""
 }

@@ -128,29 +128,16 @@ const indexHTML = `<!doctype html>
       var md = '';
       if (m && typeof m.content === 'string' && m.content.trim() !== '') {
         md = m.content;
-      } else if (m && m.raw && m.raw.content) {
-        // handle OpenAI-style content arrays or objects
-        var c = m.raw.content;
-        if (Array.isArray(c)) {
-          md = c.map(function(part){
-            if (typeof part === 'string') return part;
-            if (part && typeof part === 'object') {
-              if (part.type === 'text' && part.text) return part.text;
-              if (part.type === 'input_text' && part.text) return part.text;
-              if (part.type === 'output_text' && part.text) return part.text;
-              if (part.type === 'tool_result' && part.content) return 'Tool result:\n\n~~~\n' + tryString(part.content) + '\n~~~';
-            }
-            return tryString(part);
-          }).join('\n\n');
-        } else if (typeof c === 'string') {
-          md = c;
-        } else if (typeof c === 'object') {
-          md = '~~~json\n' + tryString(c) + '\n~~~';
-        }
-      } else if (m && (m.tool_name || m.type === 'tool_call')) {
-        md = '**' + (m.tool_name || 'tool') + '** call\n\n~~~json\n' + tryString(m.raw && (m.raw.arguments || m.raw.args || m.raw)) + '\n~~~';
+      } else if (m && m.raw && m.raw.content && Array.isArray(m.raw.content)) {
+        md = m.raw.content.map(function(part){
+          if (typeof part === 'string') return part;
+          if (part && typeof part === 'object' && part.type === 'text' && part.text) return part.text;
+          return '';
+        }).filter(Boolean).join('\n\n');
+      } else if (m && m.raw && typeof m.raw.text === 'string') {
+        md = m.raw.text;
       } else {
-        md = tryString(m && m.raw);
+        md = '(non-text content omitted)';
       }
       try { return DOMPurify.sanitize(marked.parse(md)); } catch(e) { return escapeHTML(md); }
     }
