@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "[pre-push] Running make check (vet, test, build)…"
+if ! make -s check; then
+  echo "[pre-push] Check failed. Aborting push." >&2
+  exit 1
+fi
+echo "[pre-push] OK"
+

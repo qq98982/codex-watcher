@@ -1,7 +1,7 @@
 BIN_DIR := bin
 BIN := $(BIN_DIR)/codex-watcher
 
-.PHONY: all build test vet run clean
+.PHONY: all build test vet check run clean
 
 all: build
 
@@ -15,9 +15,10 @@ test:
 vet:
 	go vet ./...
 
+check: vet test build
+
 run: build
 	PORT?=7077 CODEX_DIR?=$(HOME)/.codex $(BIN) --port $${PORT} --codex $${CODEX_DIR}
 
 clean:
 	rm -rf $(BIN_DIR)
-

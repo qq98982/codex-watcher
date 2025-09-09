@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "[pre-commit] Running go vet…"
+go vet ./...
+echo "[pre-commit] OK"
+
