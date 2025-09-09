@@ -37,6 +37,7 @@ type Session struct {
     LastAt       time.Time         `json:"last_at,omitempty"`
     MessageCount int               `json:"message_count"`
     TextCount    int               `json:"text_count"`
+    CWD          string            `json:"cwd,omitempty"`
     Models       map[string]int    `json:"models,omitempty"`
     Roles        map[string]int    `json:"roles,omitempty"`
     Tags         []string          `json:"tags,omitempty"`
@@ -213,6 +214,12 @@ func (x *Indexer) ingestLine(sessionID, path, line string) {
     if s == nil {
         s = &Session{ID: sID, Models: map[string]int{}, Roles: map[string]int{}}
         x.sessions[sID] = s
+    }
+    // detect and set CWD the first time we see it
+    if s.CWD == "" {
+        if cwd := extractCWD(raw); strings.TrimSpace(cwd) != "" {
+            s.CWD = cwd
+        }
     }
     // derive a human-friendly session title if missing
     if s.Title == "" {
@@ -463,4 +470,70 @@ func extractText(raw map[string]any) string {
         return s
     }
     return ""
+}
+
+// extractCWD attempts to find a current working directory value from common fields.
+// Priority:
+// 1) raw["cwd"], raw["working_dir"], raw["current_working_directory"] (string)
+// 2) raw["git"].(map)["cwd"|"root"] (string)
+// 3) raw["environment_context"] (string) with a <cwd>...</cwd> segment
+// Otherwise returns empty string.
+func extractCWD(raw map[string]any) string {
+    if raw == nil {
+        return ""
+    }
+    // direct fields
+    for _, k := range []string{"cwd", "working_dir", "current_working_directory"} {
+        if v, ok := raw[k].(string); ok {
+            v = strings.TrimSpace(v)
+            if v != "" {
+                return v
+            }
+        }
+    }
+    // nested git object
+    if g, ok := raw["git"].(map[string]any); ok && g != nil {
+        for _, k := range []string{"cwd", "root"} {
+            if v, ok := g[k].(string); ok {
+                v = strings.TrimSpace(v)
+                if v != "" {
+                    return v
+                }
+            }
+        }
+    }
+    // environment_context with <cwd>... markup
+    if s, ok := raw["environment_context"].(string); ok {
+        s = strings.TrimSpace(s)
+        if s != "" {
+            // try exact <cwd>...</cwd>
+            if cwd := between(s, "<cwd>", "</cwd>"); cwd != "" {
+                return cwd
+            }
+            // fallback: find substring after <cwd> up to next <
+            if i := strings.Index(strings.ToLower(s), "<cwd>"); i >= 0 {
+                rest := s[i+5:] // len("<cwd>")
+                if j := strings.Index(rest, "<"); j > 0 {
+                    cwd := strings.TrimSpace(rest[:j])
+                    if cwd != "" {
+                        return cwd
+                    }
+                }
+            }
+        }
+    }
+    return ""
+}
+
+func between(s, a, b string) string {
+    i := strings.Index(s, a)
+    if i < 0 {
+        return ""
+    }
+    i += len(a)
+    j := strings.Index(s[i:], b)
+    if j < 0 {
+        return ""
+    }
+    return strings.TrimSpace(s[i : i+j])
 }

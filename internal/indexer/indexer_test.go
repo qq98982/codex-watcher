@@ -36,15 +36,15 @@ func TestParseTime(t *testing.T) {
 func TestIngestAndSessions(t *testing.T) {
     x := New("/tmp/.codex")
     // first message should set title from content
-    line1 := `{"id":"m1","session_id":"s1","role":"user","content":"Build a CLI tool","ts":"2024-01-02T03:04:05Z","model":"gpt-4"}`
+    line1 := `{"id":"m1","session_id":"s1","role":"user","content":"Build a CLI tool","ts":"2024-01-02T03:04:05Z","model":"gpt-4","cwd":"/home/user/project1"}`
     x.ingestLine("s1", "/tmp/.codex/sessions/s1.jsonl", line1)
 
     // assistant reply
     line2 := `{"id":"m2","session_id":"s1","role":"assistant","content":"Sure, here is a plan","ts":"2024-01-02T03:05:05Z","model":"gpt-4"}`
     x.ingestLine("s1", "/tmp/.codex/sessions/s1.jsonl", line2)
 
-    // second session with explicit title
-    line3 := `{"id":"m3","session_id":"s2","role":"user","title":"Project Setup","content":"Let's start","ts":"2024-01-02T04:05:05Z"}`
+    // second session with explicit title and cwd in environment_context
+    line3 := `{"id":"m3","session_id":"s2","role":"user","title":"Project Setup","content":"Let's start","ts":"2024-01-02T04:05:05Z","environment_context":"<environment_context> <cwd>/workspace/app</cwd> </environment_context>"}`
     x.ingestLine("s2", "/tmp/.codex/sessions/s2.jsonl", line3)
 
     // assertions
@@ -67,6 +67,14 @@ func TestIngestAndSessions(t *testing.T) {
         t.Fatalf("s1 should have derived title, got id=%s title=%q", ss[1].ID, ss[1].Title)
     }
 
+    // cwd extraction
+    if ss[1].CWD != "/home/user/project1" {
+        t.Fatalf("s1 CWD got %q", ss[1].CWD)
+    }
+    if ss[0].CWD != "/workspace/app" && ss[0].CWD != "/workspace/app" { // allow either exact
+        t.Fatalf("s2 CWD got %q", ss[0].CWD)
+    }
+
     // messages API returns latest N; with limit
     msgs := x.Messages("s1", 1)
     if len(msgs) != 1 || msgs[0].ID != "m2" {
@@ -84,4 +92,3 @@ func TestIngestAndSessions(t *testing.T) {
         t.Fatalf("unexpected firstAt date: %v", ss[1].FirstAt)
     }
 }
-
