@@ -120,6 +120,9 @@ const indexHTML = `<!doctype html>
           + '<div class="content">' + html + '</div>'
           + '</div>';
       }).filter(Boolean).join('');
+      if (!el.innerHTML || !el.innerHTML.trim()) {
+        el.innerHTML = '<div class="meta" style="padding:12px;color:#666;">此会话没有可显示的文本</div>';
+      }
       try { hljs.highlightAll(); } catch(e) {}
     }
 
@@ -160,20 +163,27 @@ const indexHTML = `<!doctype html>
       if (hint) hint.textContent = (onlyText && hidden>0) ? ('隐藏 ' + hidden + ' 个无文本会话') : '';
       const s = document.getElementById('sessions');
       s.innerHTML = filtered.map(function(it){
-        var pills = Object.keys(it.models||{}).map(function(m){ return '<span class=\"pill\">'+m+'</span>'; }).join('');
+        var pills = Object.keys(it.models||{}).map(function(m){ return '<span class="pill">'+m+'</span>'; }).join('');
         var title = (it.title || it.id);
         var firstAt = (it.first_at ? new Date(it.first_at).toLocaleString() : '');
         var lastAt = (it.last_at ? new Date(it.last_at).toLocaleString() : '');
         var msgCount = (onlyText ? (it.text_count||0) : (it.message_count||0));
-        return '<div class=\"item\" onclick=\"selectSession(\\'' + it.id + '\\')\">'
+        return '<div class="item" data-id="' + it.id + '" onclick="selectSession(\'' + it.id + '\')">'
           + '<div><strong>' + title + '</strong></div>'
-          + '<div class=\"meta\">' + msgCount + ' msgs • ' + firstAt + ' → ' + lastAt + '</div>'
-          + '<div class=\"meta\">' + pills + '</div>'
+          + '<div class="meta">' + msgCount + ' msgs • ' + firstAt + ' → ' + lastAt + '</div>'
+          + '<div class="meta">' + pills + '</div>'
           + '</div>';
       }).join('');
+      // auto-select first session for better UX
+      var first = s.querySelector('.item');
+      if (first && first.dataset && first.dataset.id) {
+        selectSession(first.dataset.id);
+      }
     }
     window.addEventListener('load', ()=>{
       onlyText = false;
+      var tgl = document.getElementById('onlyTextToggle');
+      if (tgl) tgl.checked = onlyText;
       const init = JSON.parse(document.getElementById('init-sessions').textContent);
       renderSessions(init);
     });
