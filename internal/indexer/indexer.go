@@ -36,6 +36,7 @@ type Session struct {
     FirstAt      time.Time         `json:"first_at,omitempty"`
     LastAt       time.Time         `json:"last_at,omitempty"`
     MessageCount int               `json:"message_count"`
+    TextCount    int               `json:"text_count"`
     Models       map[string]int    `json:"models,omitempty"`
     Roles        map[string]int    `json:"roles,omitempty"`
     Tags         []string          `json:"tags,omitempty"`
@@ -228,6 +229,9 @@ func (x *Indexer) ingestLine(sessionID, path, line string) {
     }
     // update session aggregates
     s.MessageCount++
+    if strings.TrimSpace(msg.Content) != "" {
+        s.TextCount++
+    }
     if !msg.Ts.IsZero() {
         if s.FirstAt.IsZero() || msg.Ts.Before(s.FirstAt) {
             s.FirstAt = msg.Ts

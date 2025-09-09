@@ -144,23 +144,35 @@ const indexHTML = `<!doctype html>
     }
 
     function escapeHTML(s){ return (s||'').toString().replace(/[&<>"']/g, function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c]||c;}) }
+    let onlyText = true;
+    let sessionsCache = [];
+    function toggleOnlyText(v){ onlyText = !!v; renderSessions(sessionsCache); }
     async function refreshSessions(){ const r=await fetch('/api/sessions'); const data = await r.json(); renderSessions(data) }
     function renderSessions(list){
+      sessionsCache = Array.isArray(list) ? list : [];
+      const all = sessionsCache;
+      const filtered = onlyText ? all.filter(function(it){ return (it.text_count||0) > 0; }) : all;
+      const hidden = all.length - filtered.length;
+      const hint = document.getElementById('hiddenHint');
+      if (hint) hint.textContent = (onlyText && hidden>0) ? ('隐藏 ' + hidden + ' 个无文本会话') : '';
       const s = document.getElementById('sessions');
-      s.innerHTML = list.map(function(it){
-        var pills = Object.keys(it.models||{}).map(function(m){ return '<span class="pill">'+m+'</span>'; }).join('');
+      s.innerHTML = filtered.map(function(it){
+        var pills = Object.keys(it.models||{}).map(function(m){ return '<span class=\"pill\">'+m+'</span>'; }).join('');
         var title = (it.title || it.id);
         var firstAt = (it.first_at ? new Date(it.first_at).toLocaleString() : '');
         var lastAt = (it.last_at ? new Date(it.last_at).toLocaleString() : '');
-        return '<div class="item" onclick="selectSession(\'' + it.id + '\')">'
+        var msgCount = (onlyText ? (it.text_count||0) : (it.message_count||0));
+        return '<div class=\"item\" onclick=\"selectSession(\\'' + it.id + '\\')\">'
           + '<div><strong>' + title + '</strong></div>'
-          + '<div class="meta">' + it.message_count + ' msgs • ' + firstAt + ' → ' + lastAt + '</div>'
-          + '<div class="meta">' + pills + '</div>'
+          + '<div class=\"meta\">' + msgCount + ' msgs • ' + firstAt + ' → ' + lastAt + '</div>'
+          + '<div class=\"meta\">' + pills + '</div>'
           + '</div>';
       }).join('');
     }
     window.addEventListener('load', ()=>{
-      renderSessions(JSON.parse(document.getElementById('init-sessions').textContent));
+      onlyText = true;
+      const init = JSON.parse(document.getElementById('init-sessions').textContent);
+      renderSessions(init);
     });
   </script>
   <script type="application/json" id="init-sessions">{{ toJSON .Sessions }}</script>
@@ -173,6 +185,11 @@ const indexHTML = `<!doctype html>
       <div title="Messages">💬 {{ .Stats.TotalMessages }}</div>
     </div>
     <div style="flex:1"></div>
+    <label class="meta" style="margin-right:8px; display:flex; align-items:center; gap:6px;">
+      <input type="checkbox" id="onlyTextToggle" checked onchange="toggleOnlyText(this.checked)">
+      仅文本
+    </label>
+    <div id="hiddenHint" class="meta" style="margin-right:12px;"></div>
     <button class="btn" onclick="refreshSessions()">Refresh</button>
     <form method="post" action="/api/reindex" onsubmit="event.preventDefault(); fetch('/api/reindex',{method:'POST'}).then(()=>refreshSessions())">
       <button class="btn" type="submit">Reindex</button>
