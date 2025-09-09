@@ -213,6 +213,24 @@ func (x *Indexer) ingestLine(sessionID, path, line string) {
         s = &Session{ID: sID, Models: map[string]int{}, Roles: map[string]int{}}
         x.sessions[sID] = s
     }
+    // derive a human-friendly session title if missing
+    if s.Title == "" {
+        // prefer explicit title field if present
+        if t := stringOr(raw["title"]); strings.TrimSpace(t) != "" {
+            s.Title = trimTitle(t)
+        } else {
+            // otherwise, take the first meaningful user/assistant content
+            cand := ""
+            if msg.Role == "user" && strings.TrimSpace(msg.Content) != "" {
+                cand = msg.Content
+            } else if strings.TrimSpace(msg.Content) != "" {
+                cand = msg.Content
+            }
+            if cand != "" {
+                s.Title = trimTitle(cand)
+            }
+        }
+    }
     // update session aggregates
     s.MessageCount++
     if !msg.Ts.IsZero() {
@@ -384,4 +402,12 @@ func firstNonEmpty(a, b string) string {
         return a
     }
     return b
+}
+
+func trimTitle(s string) string {
+    s = strings.TrimSpace(strings.ReplaceAll(s, "\n", " "))
+    if len(s) <= 80 {
+        return s
+    }
+    return s[:80] + "…"
 }

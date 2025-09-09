@@ -92,36 +92,78 @@ const indexHTML = `<!doctype html>
     pre { padding: 8px; overflow: auto; }
     .row { display: flex; gap: 16px; align-items: baseline; }
     .pill { font-size: 12px; background: #efefef; border-radius: 9999px; padding: 2px 8px; margin-right: 6px; }
+    .pill.role-user { background: #e0f2fe; }
+    .pill.role-assistant { background: #e9d5ff; }
+    .pill.role-tool { background: #ffe4e6; }
     .stats { color: #333; font-size: 14px; }
     .btn { padding: 6px 10px; border: 1px solid #ccc; border-radius: 6px; background: #fff; cursor: pointer; }
   </style>
+  <link rel="stylesheet" href="https://unpkg.com/@highlightjs/cdn-assets@11.9.0/styles/github.min.css">
   <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+  <script src="https://unpkg.com/marked@12.0.2/marked.min.js"></script>
+  <script src="https://unpkg.com/dompurify@3.1.7/dist/purify.min.js"></script>
+  <script src="https://unpkg.com/@highlightjs/cdn-assets@11.9.0/highlight.min.js"></script>
   <script>
     async function selectSession(id) {
       const res = await fetch('/api/messages?session_id=' + encodeURIComponent(id) + '&limit=500');
       const data = await res.json();
       const el = document.getElementById('messages');
       el.innerHTML = data.map(function(m){
-        var role = (m.role || (m.raw && m.raw.role) || '');
-        var ts = (m.ts || '');
+        var role = (m.role || (m.raw && m.raw.role) || '').toLowerCase();
+        var rolePillClass = role === 'user' ? 'role-user' : (role === 'assistant' ? 'role-assistant' : 'role-tool');
+        var ts = (m.ts ? new Date(m.ts).toLocaleString() : '');
         var model = (m.model ? '<span class="pill">' + m.model + '</span>' : '');
-        var content = escapeHTML(m.content || tryString(m.raw && m.raw.content));
+        var html = renderContent(m);
         return '<div class="msg">'
-          + '<div class="meta"><span class="role">' + role + '</span> <span>' + ts + '</span> ' + model + '</div>'
-          + '<div class="content">' + content + '</div>'
+          + '<div class="meta"><span class="pill ' + rolePillClass + '">' + (role || 'message') + '</span> <span>' + ts + '</span> ' + model + '</div>'
+          + '<div class="content">' + html + '</div>'
           + '</div>';
       }).join('');
+      try { hljs.highlightAll(); } catch(e) {}
     }
-    function tryString(v){ if(typeof v==='string') return v; try{ return JSON.stringify(v)}catch(e){return ''}}
-    function escapeHTML(s){ return (s||'').toString().replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c])) }
+
+    function tryString(v){ if(typeof v==='string') return v; try{ return JSON.stringify(v, null, 2)}catch(e){return ''}}
+
+    function renderContent(m){
+      var md = '';
+      if (m && typeof m.content === 'string' && m.content.trim() !== '') {
+        md = m.content;
+      } else if (m && m.raw && m.raw.content) {
+        // handle OpenAI-style content arrays or objects
+        var c = m.raw.content;
+        if (Array.isArray(c)) {
+          md = c.map(function(part){
+            if (typeof part === 'string') return part;
+            if (part && typeof part === 'object') {
+              if (part.type === 'text' && part.text) return part.text;
+              if (part.type === 'input_text' && part.text) return part.text;
+              if (part.type === 'output_text' && part.text) return part.text;
+              if (part.type === 'tool_result' && part.content) return 'Tool result:\n\n```\n' + tryString(part.content) + '\n```';
+            }
+            return tryString(part);
+          }).join('\n\n');
+        } else if (typeof c === 'string') {
+          md = c;
+        } else if (typeof c === 'object') {
+          md = '```json\n' + tryString(c) + '\n```';
+        }
+      } else if (m && (m.tool_name || m.type === 'tool_call')) {
+        md = '**' + (m.tool_name || 'tool') + '** call\n\n```json\n' + tryString(m.raw && (m.raw.arguments || m.raw.args || m.raw)) + '\n```';
+      } else {
+        md = tryString(m && m.raw);
+      }
+      try { return DOMPurify.sanitize(marked.parse(md)); } catch(e) { return escapeHTML(md); }
+    }
+
+    function escapeHTML(s){ return (s||'').toString().replace(/[&<>"']/g, function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c]||c;}) }
     async function refreshSessions(){ const r=await fetch('/api/sessions'); const data = await r.json(); renderSessions(data) }
     function renderSessions(list){
       const s = document.getElementById('sessions');
       s.innerHTML = list.map(function(it){
         var pills = Object.keys(it.models||{}).map(function(m){ return '<span class="pill">'+m+'</span>'; }).join('');
         var title = (it.title || it.id);
-        var firstAt = (it.first_at || '');
-        var lastAt = (it.last_at || '');
+        var firstAt = (it.first_at ? new Date(it.first_at).toLocaleString() : '');
+        var lastAt = (it.last_at ? new Date(it.last_at).toLocaleString() : '');
         return '<div class="item" onclick="selectSession(\'' + it.id + '\')">'
           + '<div><strong>' + title + '</strong></div>'
           + '<div class="meta">' + it.message_count + ' msgs • ' + firstAt + ' → ' + lastAt + '</div>'
