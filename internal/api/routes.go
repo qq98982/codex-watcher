@@ -151,8 +151,36 @@ const indexHTML = `<!doctype html>
 
     function escapeHTML(s){ return (s||'').toString().replace(/[&<>"']/g, function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c]||c;}) }
     let onlyText = false;
+    let groupBy = false; // group by CWD
     let sessionsCache = [];
     function toggleOnlyText(v){ onlyText = !!v; renderSessions(sessionsCache); }
+    function toggleGroupBy(v){ groupBy = !!v; try{ localStorage.setItem('groupByCWD', groupBy?'1':'0'); }catch(e){} renderSessions(sessionsCache); }
+
+    function getCollapsed(cwd){ try{ return (localStorage.getItem('cwdCollapsed:'+cwd)||'0')==='1'; }catch(e){ return false; } }
+    function setCollapsed(cwd, val){ try{ localStorage.setItem('cwdCollapsed:'+cwd, val?'1':'0'); }catch(e){} }
+    function toggleGroup(cwd){ setCollapsed(cwd, !getCollapsed(cwd)); renderSessions(sessionsCache); }
+
+    function formatPath(p){ if(!p) return '(Unknown)';
+      // shorten /Users/<name> to ~
+      if (p.indexOf('/Users/')===0){ var ix=p.indexOf('/',7); if(ix>0){ return '~'+p.slice(ix); } }
+      return p; }
+    function groupByCWD(list){
+      var m = {};
+      for (var i=0;i<list.length;i++){
+        var it=list[i]; var key = it.cwd || '(Unknown)';
+        if(!m[key]) m[key]=[];
+        m[key].push(it);
+      }
+      var groups=[];
+      for (var k in m){
+        var arr=m[k].slice();
+        arr.sort(function(a,b){ var da = new Date(a.last_at||0).getTime(); var db = new Date(b.last_at||0).getTime(); return db-da; });
+        var last = arr.length? arr[0].last_at : '';
+        groups.push({cwd:k, items:arr, lastAt:last});
+      }
+      groups.sort(function(a,b){ var da = new Date(a.lastAt||0).getTime(); var db = new Date(b.lastAt||0).getTime(); return db-da; });
+      return groups;
+    }
     async function refreshSessions(){ const r=await fetch('/api/sessions'); const data = await r.json(); renderSessions(data) }
     function renderSessions(list){
       sessionsCache = Array.isArray(list) ? list : [];
@@ -162,28 +190,59 @@ const indexHTML = `<!doctype html>
       const hint = document.getElementById('hiddenHint');
       if (hint) hint.textContent = (onlyText && hidden>0) ? ('隐藏 ' + hidden + ' 个无文本会话') : '';
       const s = document.getElementById('sessions');
-      s.innerHTML = filtered.map(function(it){
-        var pills = Object.keys(it.models||{}).map(function(m){ return '<span class="pill">'+m+'</span>'; }).join('');
-        var title = (it.title || it.id);
-        var firstAt = (it.first_at ? new Date(it.first_at).toLocaleString() : '');
-        var lastAt = (it.last_at ? new Date(it.last_at).toLocaleString() : '');
-        var msgCount = (onlyText ? (it.text_count||0) : (it.message_count||0));
-        return '<div class="item" data-id="' + it.id + '" onclick="selectSession(\'' + it.id + '\')">'
-          + '<div><strong>' + title + '</strong></div>'
-          + '<div class="meta">' + msgCount + ' msgs • ' + firstAt + ' → ' + lastAt + '</div>'
-          + '<div class="meta">' + pills + '</div>'
-          + '</div>';
-      }).join('');
-      // auto-select first session for better UX
-      var first = s.querySelector('.item');
-      if (first && first.dataset && first.dataset.id) {
-        selectSession(first.dataset.id);
+      if(!groupBy){
+        s.innerHTML = filtered.map(function(it){
+          var pills = Object.keys(it.models||{}).map(function(m){ return '<span class="pill">'+m+'</span>'; }).join('');
+          var title = (it.title || it.id);
+          var firstAt = (it.first_at ? new Date(it.first_at).toLocaleString() : '');
+          var lastAt = (it.last_at ? new Date(it.last_at).toLocaleString() : '');
+          var msgCount = (onlyText ? (it.text_count||0) : (it.message_count||0));
+          return '<div class="item" data-id="' + it.id + '" onclick="selectSession(\'' + it.id + '\')">'
+            + '<div><strong>' + title + '</strong></div>'
+            + '<div class="meta">' + msgCount + ' msgs • ' + firstAt + ' → ' + lastAt + '</div>'
+            + '<div class="meta">' + pills + '</div>'
+            + '</div>';
+        }).join('');
+        var first = s.querySelector('.item');
+        if (first && first.dataset && first.dataset.id) { selectSession(first.dataset.id); }
+      } else {
+        var groups = groupByCWD(filtered);
+        s.innerHTML = groups.map(function(g){
+          var collapsed = getCollapsed(g.cwd);
+          var caret = collapsed ? '▸' : '▾';
+          var title = formatPath(g.cwd);
+          var sessionsHTML = '';
+          if(!collapsed){
+            sessionsHTML = g.items.map(function(it){
+              var pills = Object.keys(it.models||{}).map(function(m){ return '<span class="pill">'+m+'</span>'; }).join('');
+              var title2 = (it.title || it.id);
+              var firstAt = (it.first_at ? new Date(it.first_at).toLocaleString() : '');
+              var lastAt = (it.last_at ? new Date(it.last_at).toLocaleString() : '');
+              var msgCount = (onlyText ? (it.text_count||0) : (it.message_count||0));
+              return '<div class="item" data-id="' + it.id + '" onclick="selectSession(\'' + it.id + '\')">'
+                + '<div><strong>' + title2 + '</strong></div>'
+                + '<div class="meta">' + msgCount + ' msgs • ' + firstAt + ' → ' + lastAt + '</div>'
+                + '<div class="meta">' + pills + '</div>'
+                + '</div>';
+            }).join('');
+          }
+          var lastAtG = (g.lastAt ? new Date(g.lastAt).toLocaleString() : '');
+          return '<div class="group">'
+            + '<div class="item" onclick="toggleGroup(\'' + (g.cwd||'') + '\')" title="' + (g.cwd||'') + '">' + caret + ' <strong style="font-weight:600">' + title + '</strong>' + ' <span class="meta">(' + g.items.length + ' sessions • ' + lastAtG + ')</span></div>'
+            + (collapsed ? '' : sessionsHTML)
+            + '</div>';
+        }).join('');
+        var first2 = s.querySelector('.group .item[data-id]');
+        if (first2 && first2.dataset && first2.dataset.id) { selectSession(first2.dataset.id); }
       }
     }
     window.addEventListener('load', ()=>{
       onlyText = false;
+      try{ groupBy = (localStorage.getItem('groupByCWD')||'0')==='1'; }catch(e){ groupBy=false; }
       var tgl = document.getElementById('onlyTextToggle');
       if (tgl) tgl.checked = onlyText;
+      var tgl2 = document.getElementById('groupByToggle');
+      if (tgl2) tgl2.checked = groupBy;
       const init = JSON.parse(document.getElementById('init-sessions').textContent);
       renderSessions(init);
     });
@@ -198,6 +257,10 @@ const indexHTML = `<!doctype html>
       <div title="Messages">💬 {{ .Stats.TotalMessages }}</div>
     </div>
     <div style="flex:1"></div>
+    <label class="meta" style="margin-right:8px; display:flex; align-items:center; gap:6px;">
+      <input type="checkbox" id="groupByToggle" onchange="toggleGroupBy(this.checked)">
+      按目录分组
+    </label>
     <label class="meta" style="margin-right:8px; display:flex; align-items:center; gap:6px;">
       <input type="checkbox" id="onlyTextToggle" checked onchange="toggleOnlyText(this.checked)">
       仅文本
