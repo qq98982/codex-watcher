@@ -1,7 +1,9 @@
 BIN_DIR := bin
 BIN := $(BIN_DIR)/codex-watcher
+PORT ?= 7077
+CODEX_DIR ?= $(HOME)/.codex
 
-.PHONY: all build test vet check run clean
+.PHONY: all build test vet check run start stop restart status clean
 
 all: build
 
@@ -18,7 +20,27 @@ vet:
 check: vet test build
 
 run: build
-	PORT?=7077 CODEX_DIR?=$(HOME)/.codex $(BIN) --port $${PORT} --codex $${CODEX_DIR}
+	$(BIN) --port $(PORT) --codex $(CODEX_DIR)
+
+start: build
+	$(BIN) start --port $(PORT) --codex $(CODEX_DIR)
+
+stop:
+	@if [ -x "$(BIN)" ]; then \
+		$(BIN) stop --codex $(CODEX_DIR); \
+	else \
+		go run ./cmd/codex-watcher stop --codex "$(CODEX_DIR)"; \
+	fi
+
+restart: build
+	$(BIN) restart --port $(PORT) --codex $(CODEX_DIR)
+
+status:
+	@if [ -x "$(BIN)" ]; then \
+		$(BIN) status --codex $(CODEX_DIR); \
+	else \
+		go run ./cmd/codex-watcher status --codex "$(CODEX_DIR)"; \
+	fi
 
 clean:
 	rm -rf $(BIN_DIR)
