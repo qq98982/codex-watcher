@@ -438,12 +438,20 @@ func extractText(raw map[string]any) string {
                     continue
                 }
                 if m, ok := el.(map[string]any); ok {
-                    if t, _ := m["type"].(string); t == "text" {
+                    if t, _ := m["type"].(string); t == "text" || t == "input_text" || t == "output_text" {
                         if tx, _ := m["text"].(string); strings.TrimSpace(tx) != "" {
                             if b.Len() > 0 {
                                 b.WriteString("\n\n")
                             }
                             b.WriteString(tx)
+                            continue
+                        }
+                        if cx, _ := m["content"].(string); strings.TrimSpace(cx) != "" {
+                            if b.Len() > 0 {
+                                b.WriteString("\n\n")
+                            }
+                            b.WriteString(cx)
+                            continue
                         }
                     }
                 }

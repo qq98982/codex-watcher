@@ -132,7 +132,10 @@ const indexHTML = `<!doctype html>
       } else if (m && m.raw && m.raw.content && Array.isArray(m.raw.content)) {
         md = m.raw.content.map(function(part){
           if (typeof part === 'string') return part;
-          if (part && typeof part === 'object' && part.type === 'text' && part.text) return part.text;
+          if (part && typeof part === 'object') {
+            if ((part.type === 'text' || part.type === 'input_text' || part.type === 'output_text') && part.text) return part.text;
+            if ((part.type === 'text' || part.type === 'input_text' || part.type === 'output_text') && typeof part.content === 'string') return part.content;
+          }
           return '';
         }).filter(Boolean).join('\n\n');
       } else if (m && m.raw && typeof m.raw.text === 'string') {
@@ -144,7 +147,7 @@ const indexHTML = `<!doctype html>
     }
 
     function escapeHTML(s){ return (s||'').toString().replace(/[&<>"']/g, function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c]||c;}) }
-    let onlyText = true;
+    let onlyText = false;
     let sessionsCache = [];
     function toggleOnlyText(v){ onlyText = !!v; renderSessions(sessionsCache); }
     async function refreshSessions(){ const r=await fetch('/api/sessions'); const data = await r.json(); renderSessions(data) }
@@ -170,7 +173,7 @@ const indexHTML = `<!doctype html>
       }).join('');
     }
     window.addEventListener('load', ()=>{
-      onlyText = true;
+      onlyText = false;
       const init = JSON.parse(document.getElementById('init-sessions').textContent);
       renderSessions(init);
     });
