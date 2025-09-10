@@ -124,6 +124,17 @@ const indexHTML = `<!doctype html>
       if (b) b.textContent = isTruncShown ? 'Show less' : 'Show full';
       try { hljs.highlightAll(); } catch(e) {}
     }
+    function toggleTool(id){
+      var c = document.getElementById(id+':collapsed');
+      var e = document.getElementById(id+':expanded');
+      var a = document.getElementById(id+':arrow');
+      if (!c || !e) return;
+      var isCollapsedShown = c.style.display !== 'none';
+      c.style.display = isCollapsedShown ? 'none' : '';
+      e.style.display = isCollapsedShown ? '' : 'none';
+      if (a) a.textContent = isCollapsedShown ? '▾' : '▸';
+      try { hljs.highlightAll(); } catch(e) {}
+    }
     let currentSessionId = null;
     async function selectSession(id) {
       currentSessionId = id;
@@ -139,9 +150,10 @@ const indexHTML = `<!doctype html>
         var ts = (m.ts ? new Date(m.ts).toLocaleString() : '');
         var model = (m.model ? '<span class="pill">' + m.model + '</span>' : '');
         var pillLabel = isReasoning ? 'Assistant Thinking' : (isFuncCall ? ('Tool: ' + ((m.raw && m.raw.name) || 'tool')) : (isFuncOut ? ('Tool Output' + ((m.raw && m.raw.name) ? (': ' + m.raw.name) : '')) : (role || 'message')));
+        var id2 = null;
         var html = renderContent(m);
         if (isFuncCall || isFuncOut) {
-          var id2 = 'tool-' + (m.id || Math.random().toString(36).slice(2));
+          id2 = 'tool-' + (m.id || Math.random().toString(36).slice(2));
           var summary = '';
           if (isFuncCall) {
             var name = (m.raw && m.raw.name) || '';
@@ -155,13 +167,18 @@ const indexHTML = `<!doctype html>
             else if (out && typeof out === 'object') { if (typeof out.output==='string') textOut=out.output; if(typeof out.stderr==='string') stderrOut=out.stderr; }
             var parts=[]; if (textOut) parts.push('stdout'); if (stderrOut) parts.push('stderr'); summary = parts.length? ('output: ' + parts.join(', ')) : 'output';
           }
-          var collapsedDiv = '<div id="'+id2+':collapsed" class="meta" style="font-family:ui-monospace, SFMono-Regular, Menlo, monospace;' + (collapseTools? '' : 'display:none;') + '">' + escapeHTML(summary) + ' <button class="btn" onclick="toggleTool(\''+id2+'\')">Expand</button></div>';
-          var expandedDiv = '<div id="'+id2+':expanded" ' + (collapseTools? 'style=\"display:none;\"' : '') + '>' + html + '<div class="meta"><button class="btn" onclick="toggleTool(\''+id2+'\')">Collapse</button></div></div>';
+          var collapsedDiv = '<div id="'+id2+':collapsed" class="meta" style="font-family:ui-monospace, SFMono-Regular, Menlo, monospace;' + (collapseTools? '' : 'display:none;') + '">' + escapeHTML(summary) + '</div>';
+          var expandedDiv = '<div id="'+id2+':expanded" ' + (collapseTools? 'style=\"display:none;\"' : '') + '>' + html + '</div>';
           html = collapsedDiv + expandedDiv;
         }
         if (!html || !html.trim()) return '';
+        var arrow = '';
+        if (id2) {
+          var sym = collapseTools ? '▸' : '▾';
+          arrow = ' <span id="'+id2+':arrow" class="pill" style="cursor:pointer" onclick="toggleTool(\''+id2+'\')">' + sym + '</span>';
+        }
         return '<div class="msg">'
-          + '<div class="meta"><span class="pill ' + rolePillClass + '">' + pillLabel + '</span> <span>' + ts + '</span> ' + model + '</div>'
+          + '<div class="meta"><span class="pill ' + rolePillClass + '">' + pillLabel + '</span>' + arrow + ' <span>' + ts + '</span> ' + model + '</div>'
           + '<div class="content">' + html + '</div>'
           + '</div>';
       }).filter(Boolean).join('');
