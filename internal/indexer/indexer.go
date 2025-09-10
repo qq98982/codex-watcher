@@ -38,6 +38,7 @@ type Session struct {
     MessageCount int               `json:"message_count"`
     TextCount    int               `json:"text_count"`
     CWD          string            `json:"cwd,omitempty"`
+    CWDBase      string            `json:"cwd_base,omitempty"`
     Models       map[string]int    `json:"models,omitempty"`
     Roles        map[string]int    `json:"roles,omitempty"`
     Tags         []string          `json:"tags,omitempty"`
@@ -219,6 +220,11 @@ func (x *Indexer) ingestLine(sessionID, path, line string) {
     if s.CWD == "" {
         if cwd := extractCWD(raw); strings.TrimSpace(cwd) != "" {
             s.CWD = cwd
+            // compute base directory name
+            base := strings.TrimRight(cwd, "/")
+            if base != "" {
+                s.CWDBase = filepath.Base(base)
+            }
         }
     }
     // derive a human-friendly session title if missing
@@ -522,6 +528,30 @@ func extractCWD(raw map[string]any) string {
             }
         }
     }
+    // content-based extraction: look for <cwd>... in content strings or parts
+    if v, ok := raw["content"]; ok {
+        switch c := v.(type) {
+        case string:
+            if cwd := findCWDInText(c); cwd != "" { return cwd }
+        case []any:
+            for _, el := range c {
+                if s, ok := el.(string); ok {
+                    if cwd := findCWDInText(s); cwd != "" { return cwd }
+                    continue
+                }
+                if m, ok := el.(map[string]any); ok {
+                    if t, _ := m["type"].(string); t == "text" || t == "input_text" || t == "output_text" {
+                        if tx, _ := m["text"].(string); strings.TrimSpace(tx) != "" {
+                            if cwd := findCWDInText(tx); cwd != "" { return cwd }
+                        }
+                        if cx, _ := m["content"].(string); strings.TrimSpace(cx) != "" {
+                            if cwd := findCWDInText(cx); cwd != "" { return cwd }
+                        }
+                    }
+                }
+            }
+        }
+    }
     return ""
 }
 
@@ -536,4 +566,12 @@ func between(s, a, b string) string {
         return ""
     }
     return strings.TrimSpace(s[i : i+j])
+}
+
+func findCWDInText(s string) string {
+    if s == "" { return "" }
+    if cwd := between(s, "<cwd>", "</cwd>"); cwd != "" {
+        return cwd
+    }
+    return ""
 }

@@ -71,8 +71,14 @@ func TestIngestAndSessions(t *testing.T) {
     if ss[1].CWD != "/home/user/project1" {
         t.Fatalf("s1 CWD got %q", ss[1].CWD)
     }
-    if ss[0].CWD != "/workspace/app" && ss[0].CWD != "/workspace/app" { // allow either exact
+    if ss[1].CWDBase != "project1" {
+        t.Fatalf("s1 CWDBase got %q", ss[1].CWDBase)
+    }
+    if ss[0].CWD != "/workspace/app" { // extracted from <cwd> in environment_context
         t.Fatalf("s2 CWD got %q", ss[0].CWD)
+    }
+    if ss[0].CWDBase != "app" {
+        t.Fatalf("s2 CWDBase got %q", ss[0].CWDBase)
     }
 
     // messages API returns latest N; with limit
