@@ -93,7 +93,7 @@ const indexHTML = `<!doctype html>
     .row { display: flex; gap: 16px; align-items: baseline; }
     .pill { font-size: 12px; background: #efefef; border-radius: 9999px; padding: 2px 8px; margin-right: 6px; }
     .pill.role-user { background: #e0f2fe; }
-    .pill.role-assistant { background: #e9d5ff; }
+    .pill.role-assistant { background: #e9d5ff; text-transform: uppercase; font-weight: 700; }
     .pill.role-tool { background: #ffe4e6; }
     .stats { color: #333; font-size: 14px; }
     .btn { padding: 6px 10px; border: 1px solid #ccc; border-radius: 6px; background: #fff; cursor: pointer; }
