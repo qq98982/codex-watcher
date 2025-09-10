@@ -5,9 +5,11 @@ import (
     "html/template"
     "net/http"
     "strconv"
+    "strings"
 
     "codex-watcher/internal/indexer"
     "codex-watcher/internal/search"
+    "codex-watcher/internal/exporter"
 )
 
 var funcMap = template.FuncMap{
@@ -78,6 +80,60 @@ func AttachRoutes(mux *http.ServeMux, idx *indexer.Indexer) {
         }
         writeJSON(w, 200, map[string]any{"ok": true})
     })
+
+    // Export: single session
+    mux.HandleFunc("/api/export/session", func(w http.ResponseWriter, r *http.Request) {
+        q := r.URL.Query()
+        sessionID := q.Get("session_id")
+        if sessionID == "" { writeJSON(w, 400, map[string]any{"error":"missing session_id"}); return }
+        format := q.Get("format")
+        if format == "" { format = "md" }
+        // filters
+        var f exporter.Filters
+        if v := q.Get("text_only"); v != "" {
+            if v == "1" || v == "true" { f.TextOnly = true }
+        }
+        if v := q.Get("include_roles"); v != "" {
+            f.IncludeRoles = splitCSV(v)
+        }
+        if v := q.Get("include_types"); v != "" {
+            f.IncludeTypes = splitCSV(v)
+        }
+        if v := q.Get("limit"); v != "" {
+            if n, err := strconv.Atoi(v); err == nil { f.MaxMessages = n }
+        }
+        // lookup session for filename/meta
+        var sess indexer.Session
+        for _, s := range idx.Sessions() { if s.ID == sessionID { sess = s; break } }
+        if sess.ID == "" { writeJSON(w, 404, map[string]any{"error":"session not found"}); return }
+
+        // headers
+        switch format {
+        case "jsonl":
+            w.Header().Set("Content-Type", "application/x-ndjson; charset=utf-8")
+        case "json":
+            w.Header().Set("Content-Type", "application/json; charset=utf-8")
+        case "txt":
+            w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+        default:
+            w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+            format = "md"
+        }
+        w.Header().Set("X-Content-Type-Options", "nosniff")
+        w.Header().Set("Content-Disposition", "attachment; filename=\""+ exporter.BuildAttachmentName(sess, format) +"\"")
+
+        n, err := exporter.WriteSession(w, idx, sessionID, format, f)
+        if err != nil {
+            // best effort error write
+            w.WriteHeader(500)
+            _, _ = w.Write([]byte("export error: "+err.Error()))
+            return
+        }
+        if n == 0 {
+            // No content — easier for clients to detect
+            w.Header().Set("X-Export-Empty", "1")
+        }
+    })
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -86,6 +142,15 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
     enc := json.NewEncoder(w)
     enc.SetEscapeHTML(false)
     _ = enc.Encode(v)
+}
+
+func splitCSV(s string) []string {
+    out := []string{}
+    for _, p := range strings.Split(s, ",") {
+        p = strings.TrimSpace(p)
+        if p != "" { out = append(out, p) }
+    }
+    return out
 }
 
 const indexHTML = `<!doctype html>
@@ -163,6 +228,14 @@ const indexHTML = `<!doctype html>
       e.style.display = isCollapsedShown ? '' : 'none';
       if (a) a.textContent = isCollapsedShown ? '▾' : '▸';
       try { hljs.highlightAll(); } catch(e) {}
+    }
+    function openExport(fmt){
+      try{
+        if (!currentSessionId) { return; }
+        fmt = (fmt||'md');
+        var url = '/api/export/session?session_id=' + encodeURIComponent(currentSessionId) + '&format=' + encodeURIComponent(fmt) + '&text_only=true';
+        window.open(url, '_blank');
+      }catch(e){}
     }
     let currentSessionId = null;
     async function selectSession(id) {
@@ -599,6 +672,15 @@ const indexHTML = `<!doctype html>
       <input type="checkbox" id="collapseToolsToggle" checked onchange="toggleCollapseTools(this.checked)">
       Collapse Tools
     </label>
+    <div class="row" style="align-items:center; gap:6px;">
+      <select id="exportFormat" class="btn" style="padding:4px 6px;">
+        <option value="md">MD</option>
+        <option value="jsonl">JSONL</option>
+        <option value="json">JSON</option>
+        <option value="txt">TXT</option>
+      </select>
+      <button class="btn" onclick="openExport(document.getElementById('exportFormat').value)">Export</button>
+    </div>
     <div class="searchbar" style="max-width:680px;">
       <input id="searchInput" type="text" placeholder="Search across sessions… (quotes, -exclude, OR, fields, /re/flags)" onkeydown="if(event.key==='Enter'){runSearch()}" />
       <select id="searchScope" title="Scope">
