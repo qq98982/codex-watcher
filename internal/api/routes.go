@@ -58,8 +58,8 @@ func AttachRoutes(mux *http.ServeMux, idx *indexer.Indexer) {
         if s := q.Get("offset"); s != "" {
             if n, err := strconv.Atoi(s); err == nil { offset = n }
         }
-        scope := q.Get("in")
-        parsed := search.Parse(raw, scope)
+        // Default to searching across all fields; ignore explicit 'in' parameter
+        parsed := search.Parse(raw, "all")
         res := search.Exec(idx, parsed, limit, offset)
         writeJSON(w, 200, res)
     })
@@ -438,10 +438,9 @@ const indexHTML = `<!doctype html>
     // Search
     async function runSearch(){
       var q = (document.getElementById('searchInput')||{}).value || '';
-      var scope = (document.getElementById('searchScope')||{}).value || 'content';
       q = (q||'').trim();
       if (!q) { return clearSearch(); }
-      var url = '/api/search?q=' + encodeURIComponent(q) + '&in=' + encodeURIComponent(scope) + '&limit=200';
+      var url = '/api/search?q=' + encodeURIComponent(q) + '&limit=200';
       const res = await fetch(url);
       const data = await res.json();
       lastSearch = {res: data, q: q};
@@ -709,11 +708,6 @@ const indexHTML = `<!doctype html>
     </div>
     <div class="flex-1"></div>
     <div class="searchbar searchbar--max">
-      <select id="searchScope" title="Scope">
-        <option value="content">Content</option>
-        <option value="tools">Tools</option>
-        <option value="all">All</option>
-      </select>
       <input id="searchInput" type="text" placeholder="Search across sessions… (quotes, -exclude, OR, fields, /re/flags)" onkeydown="if(event.key==='Enter'){runSearch()}" />
       <button class="btn" onclick="runSearch()">Search</button>
     </div>

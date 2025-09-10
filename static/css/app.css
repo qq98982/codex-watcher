@@ -96,12 +96,12 @@ select.btn { padding-right: var(--space-10); }
 .back-link:hover { text-decoration: underline; }
 .searchbar { display:flex; gap: var(--space-3); align-items:center; padding: var(--space-3) var(--space-4); }
 .searchbar input[type="text"] { flex:1; padding: var(--space-2) var(--space-3); border: var(--border-width) solid #ddd; border-radius: var(--radius-sm); }
-.searchbar select { padding: var(--space-2) var(--space-3); border: var(--border-width) solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-btn-bg); padding-right: var(--space-10); }
+/* (removed top search scope select; keeping rule commented for reference)
+   .searchbar select { padding: var(--space-2) var(--space-3); border: var(--border-width) solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-btn-bg); }
+*/
 /* On focus, match border to page background to avoid dark ring */
 .searchbar input[type="text"]:focus,
 .searchbar input[type="text"]:focus-visible,
-.searchbar select:focus,
-.searchbar select:focus-visible,
 .searchbar button.btn:focus,
 .searchbar button.btn:focus-visible {
   outline: none;
