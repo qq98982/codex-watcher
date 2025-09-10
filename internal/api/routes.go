@@ -136,15 +136,11 @@ func AttachRoutes(mux *http.ServeMux, idx *indexer.Indexer) {
         }
     })
 
-    // Export: by directory (flattened)
+    // Export: by directory (markdown, all types)
     mux.HandleFunc("/api/export/by_dir", func(w http.ResponseWriter, r *http.Request) {
         q := r.URL.Query()
         cwd := q.Get("cwd")
         if cwd == "" { writeJSON(w, 400, map[string]any{"error":"missing cwd"}); return }
-        mode := q.Get("mode")
-        if mode == "" { mode = "dialog" }
-        format := q.Get("format")
-        if format == "" { format = "md" }
         // optional dates
         var after, before time.Time
         if s := q.Get("after"); s != "" {
@@ -153,19 +149,12 @@ func AttachRoutes(mux *http.ServeMux, idx *indexer.Indexer) {
         if s := q.Get("before"); s != "" {
             if t, err := time.Parse(time.RFC3339, s); err == nil { before = t }
         }
-        // headers
-        switch format {
-        case "json":
-            w.Header().Set("Content-Type", "application/json; charset=utf-8")
-        case "md":
-            w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
-        default:
-            writeJSON(w, 400, map[string]any{"error":"unsupported format"}); return
-        }
+        // headers — always markdown
+        w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
         w.Header().Set("X-Content-Type-Options", "nosniff")
-        w.Header().Set("Content-Disposition", "attachment; filename=\""+ exporter.BuildDirAttachmentName(cwd, mode, format) +"\"")
+        w.Header().Set("Content-Disposition", "attachment; filename=\""+ exporter.BuildDirAttachmentName(cwd, "all_md", "md") +"\"")
 
-        n, err := exporter.WriteByDirFlat(w, idx, cwd, mode, format, after, before)
+        n, err := exporter.WriteByDirAllMarkdown(w, idx, cwd, after, before)
         if err != nil { w.WriteHeader(500); _, _ = w.Write([]byte("export error: "+err.Error())); return }
         if n == 0 { w.Header().Set("X-Export-Empty", "1") }
     })
@@ -264,14 +253,7 @@ const indexHTML = `<!doctype html>
       if (a) a.textContent = isCollapsedShown ? '▾' : '▸';
       try { hljs.highlightAll(); } catch(e) {}
     }
-    function openExport(fmt){
-      try{
-        if (!currentSessionId) { return; }
-        fmt = (fmt||'md');
-        var url = '/api/export/session?session_id=' + encodeURIComponent(currentSessionId) + '&format=' + encodeURIComponent(fmt) + '&text_only=true';
-        window.open(url, '_blank');
-      }catch(e){}
-    }
+    // removed per simplification: no per-session export controls
     let currentSessionId = null;
     async function selectSession(id) {
       currentSessionId = id;
@@ -717,15 +699,7 @@ const indexHTML = `<!doctype html>
       <input type="checkbox" id="collapseToolsToggle" checked onchange="toggleCollapseTools(this.checked)">
       Collapse Tools
     </label>
-    <div class="row" style="align-items:center; gap:6px;">
-      <select id="exportFormat" class="btn" style="padding:4px 6px;">
-        <option value="md">MD</option>
-        <option value="jsonl">JSONL</option>
-        <option value="json">JSON</option>
-        <option value="txt">TXT</option>
-      </select>
-      <button class="btn" onclick="openExport(document.getElementById('exportFormat').value)">Export</button>
-    </div>
+    
     <div class="searchbar" style="max-width:680px;">
       <input id="searchInput" type="text" placeholder="Search across sessions… (quotes, -exclude, OR, fields, /re/flags)" onkeydown="if(event.key==='Enter'){runSearch()}" />
       <select id="searchScope" title="Scope">

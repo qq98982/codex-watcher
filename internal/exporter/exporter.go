@@ -315,6 +315,152 @@ func WriteByDirFlat(w io.Writer, idx *indexer.Indexer, cwdPrefix string, mode st
     }
 }
 
+// WriteByDirAllMarkdown writes a markdown transcript for all messages (USER, TOOLS,
+// ASSISTANT THINKING, ASSISTANT) under a cwd prefix, sessions ordered by FirstAt asc,
+// messages ordered by timestamp asc.
+func WriteByDirAllMarkdown(w io.Writer, idx *indexer.Indexer, cwdPrefix string, after, before time.Time) (int, error) {
+    sessions := idx.Sessions()
+    sel := make([]indexer.Session, 0)
+    for _, s := range sessions {
+        if cwdPrefix == "" || strings.HasPrefix(s.CWD, cwdPrefix) {
+            sel = append(sel, s)
+        }
+    }
+    sort.SliceStable(sel, func(i, j int) bool {
+        ai := sel[i].FirstAt
+        aj := sel[j].FirstAt
+        if ai.IsZero() && aj.IsZero() { return sel[i].ID < sel[j].ID }
+        if ai.IsZero() { return true }
+        if aj.IsZero() { return false }
+        return ai.Before(aj)
+    })
+    inDate := func(ts time.Time) bool {
+        if ts.IsZero() { return true }
+        if !after.IsZero() && ts.Before(after) { return false }
+        if !before.IsZero() && ts.After(before) { return false }
+        return true
+    }
+    count := 0
+    // Optional overall header
+    if cwdPrefix != "" {
+        _, _ = io.WriteString(w, "# Export for "+cwdPrefix+"\n\n")
+    }
+    for _, s := range sel {
+        title := s.Title
+        if strings.TrimSpace(title) == "" { title = s.ID }
+        _, _ = io.WriteString(w, "## "+escapeMD(title)+"\n\n")
+        if strings.TrimSpace(s.CWD) != "" {
+            _, _ = io.WriteString(w, "CWD: "+escapeMD(s.CWD)+"\n\n")
+        }
+        msgs := idx.Messages(s.ID, 0)
+        sort.SliceStable(msgs, func(i, j int) bool {
+            ti := msgs[i].Ts
+            tj := msgs[j].Ts
+            if !ti.Equal(tj) { return ti.Before(tj) }
+            if msgs[i].Source != msgs[j].Source { return msgs[i].Source < msgs[j].Source }
+            return msgs[i].LineNo < msgs[j].LineNo
+        })
+        for _, m := range msgs {
+            if !inDate(m.Ts) { continue }
+            typ := strings.ToLower(strings.TrimSpace(m.Type))
+            role := strings.ToLower(strings.TrimSpace(m.Role))
+            text := strings.TrimSpace(m.Content)
+
+            switch typ {
+            case "function_call":
+                _, _ = io.WriteString(w, "### TOOLS\n\n")
+                // name / command / arguments
+                cmdLine, argsDump := parseFuncCall(m)
+                if cmdLine != "" {
+                    _, _ = io.WriteString(w, "~~~bash\n$ "+cmdLine+"\n~~~\n\n")
+                } else if argsDump != "" {
+                    _, _ = io.WriteString(w, "~~~json\n"+argsDump+"\n~~~\n\n")
+                }
+                count++
+                continue
+            case "function_call_output":
+                _, _ = io.WriteString(w, "### TOOLS OUTPUT\n\n")
+                out, errText := parseFuncOutput(m)
+                if out != "" {
+                    _, _ = io.WriteString(w, "~~~\n"+out+"\n~~~\n\n")
+                    count++
+                }
+                if errText != "" {
+                    _, _ = io.WriteString(w, "#### STDERR\n\n~~~\n"+errText+"\n~~~\n\n")
+                }
+                continue
+            case "reasoning":
+                if text != "" {
+                    _, _ = io.WriteString(w, "### ASSISTANT THINKING\n\n"+text+"\n\n")
+                    count++
+                }
+                continue
+            }
+            // Normal messages by role
+            if role == "user" {
+                if text != "" { _, _ = io.WriteString(w, "### USER\n\n"+text+"\n\n"); count++ }
+                continue
+            }
+            if role == "assistant" {
+                if text != "" { _, _ = io.WriteString(w, "### ASSISTANT\n\n"+text+"\n\n"); count++ }
+                continue
+            }
+        }
+    }
+    return count, nil
+}
+
+func parseFuncCall(m *indexer.Message) (cmdLine string, argsDump string) {
+    if m == nil || m.Raw == nil { return "", "" }
+    args := m.Raw["arguments"]
+    // Try JSON string first
+    if s, ok := args.(string); ok {
+        var obj map[string]any
+        if json.Unmarshal([]byte(s), &obj) == nil {
+            if cl := joinCommand(obj["command"]); cl != "" { return cl, "" }
+            if b, err := json.MarshalIndent(obj, "", "  "); err == nil { return "", string(b) }
+            return "", s
+        }
+        return "", s
+    }
+    if m2, ok := args.(map[string]any); ok {
+        if cl := joinCommand(m2["command"]); cl != "" { return cl, "" }
+        if b, err := json.MarshalIndent(m2, "", "  "); err == nil { return "", string(b) }
+    }
+    return "", ""
+}
+
+func joinCommand(v any) string {
+    arr, ok := v.([]any)
+    if !ok || len(arr) == 0 { return "" }
+    parts := make([]string, 0, len(arr))
+    for _, el := range arr {
+        if s, ok := el.(string); ok { parts = append(parts, s) }
+    }
+    return strings.Join(parts, " ")
+}
+
+func parseFuncOutput(m *indexer.Message) (stdout string, stderr string) {
+    if m == nil || m.Raw == nil { return "", "" }
+    v := m.Raw["output"]
+    switch t := v.(type) {
+    case string:
+        var obj map[string]any
+        if json.Unmarshal([]byte(t), &obj) == nil {
+            if s, _ := obj["output"].(string); s != "" { stdout = s }
+            if s, _ := obj["stdout"].(string); s != "" { stdout = s }
+            if s, _ := obj["stderr"].(string); s != "" { stderr = s }
+            if stdout != "" || stderr != "" { return stdout, stderr }
+        }
+        return t, ""
+    case map[string]any:
+        if s, _ := t["output"].(string); s != "" { stdout = s }
+        if s, _ := t["stdout"].(string); s != "" { stdout = s }
+        if s, _ := t["stderr"].(string); s != "" { stderr = s }
+    }
+    return stdout, stderr
+}
+
 func sanitize(s string) string {
     if s == "" { return "_" }
     s = strings.TrimSpace(s)
