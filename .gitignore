@@ -27,4 +27,6 @@ dist/
 
 # Caches and logs
 .cache/
+/.gocache/
+/.gomodcache/
 *.log
