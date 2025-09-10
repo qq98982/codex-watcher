@@ -413,7 +413,7 @@ const indexHTML = `<!doctype html>
     let sessionsCache = [];
     window.pendingFocus = null; // { sessionId, messageId, lineNo }
     function setViewMode(v){ viewMode = v; try{ localStorage.setItem('viewMode', viewMode); }catch(e){} renderSessions(sessionsCache); if (currentSessionId) selectSession(currentSessionId); }
-    function toggleCollapseTools(v){ collapseTools = !!v; try{ localStorage.setItem('collapseTools', collapseTools?'1':'0'); }catch(e){} if (currentSessionId) selectSession(currentSessionId); }
+    // No Collapse Tools toggle UI; collapseTools stays true
 
     function getCollapsed(key){ try{ return (localStorage.getItem('collapsed:'+key)||'0')==='1'; }catch(e){ return false; } }
     function setCollapsed(key, val){ try{ localStorage.setItem('collapsed:'+key, val?'1':'0'); }catch(e){} }
@@ -675,11 +675,8 @@ const indexHTML = `<!doctype html>
     }
     window.addEventListener('load', ()=>{
       try{ viewMode = localStorage.getItem('viewMode') || 'time-cwd'; }catch(e){ viewMode='time-cwd'; }
-      try{ collapseTools = (localStorage.getItem('collapseTools')||'1')==='1'; }catch(e){ collapseTools=true; }
       var sel = document.getElementById('viewModeSelect');
       if (sel) sel.value = viewMode;
-      var ct = document.getElementById('collapseToolsToggle');
-      if (ct) ct.checked = collapseTools;
       const init = JSON.parse(document.getElementById('init-sessions').textContent);
       sessionsCache = Array.isArray(init) ? init : [];
       renderSessions(sessionsCache);
@@ -695,11 +692,6 @@ const indexHTML = `<!doctype html>
       <div title="Messages">💬 {{ .Stats.TotalMessages }}</div>
     </div>
     <div style="flex:1"></div>
-    <label class="meta" style="margin-right:8px; display:flex; align-items:center; gap:6px;">
-      <input type="checkbox" id="collapseToolsToggle" checked onchange="toggleCollapseTools(this.checked)">
-      Collapse Tools
-    </label>
-    
     <div class="searchbar" style="max-width:680px;">
       <input id="searchInput" type="text" placeholder="Search across sessions… (quotes, -exclude, OR, fields, /re/flags)" onkeydown="if(event.key==='Enter'){runSearch()}" />
       <select id="searchScope" title="Scope">
@@ -708,13 +700,13 @@ const indexHTML = `<!doctype html>
         <option value="all">All</option>
       </select>
       <button class="btn" onclick="runSearch()">Search</button>
-      <button class="btn" onclick="clearSearch()">Clear</button>
     </div>
   </header>
   <div class="container">
     <div class="sidebar">
       <div id="search-results" style="display:none"></div>
-      <div id="sidebar-controls" class="meta" style="padding:8px 10px; border-bottom:1px solid #eee; display:flex; align-items:center; gap:8px;">
+      <div id="sessions"></div>
+      <div id="sidebar-controls" class="meta" style="padding:8px 10px; border-top:1px solid #eee; display:flex; align-items:center; gap:8px;">
         <span>View</span>
         <select id="viewModeSelect" onchange="setViewMode(this.value)" class="btn" style="padding:4px 6px;">
           <option value="time-cwd">Time → Dir</option>
@@ -722,7 +714,6 @@ const indexHTML = `<!doctype html>
           <option value="flat">All by Time</option>
         </select>
       </div>
-      <div id="sessions"></div>
     </div>
     <div class="content" id="messages"></div>
   </div>
