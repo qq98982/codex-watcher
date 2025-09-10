@@ -43,8 +43,8 @@
   --radius-sm: 6px;
   --radius-pill: 9999px;
   --border-width: 1px;
-  --sidebar-width: 480px;
-  --search-max-width: 680px;
+  --sidebar-width: 300px;
+  --search-max-width: 1020px; /* 150% of previous 680px */
   /* (reserved) Native select arrow spacing (not used) */
 }
 
@@ -95,7 +95,7 @@ select.btn { padding-right: var(--space-10); }
 .back-link { color: var(--color-fg); text-decoration: none; }
 .back-link:hover { text-decoration: underline; }
 .searchbar { display:flex; gap: var(--space-3); align-items:center; padding: var(--space-3) var(--space-4); }
-.searchbar input[type="text"] { flex:1; padding: var(--space-2) var(--space-3); border: var(--border-width) solid #ddd; border-radius: var(--radius-sm); }
+.searchbar input[type="text"] { flex:1; padding: var(--space-3) var(--space-4); border: var(--border-width) solid #ddd; border-radius: var(--radius-sm); }
 /* (removed top search scope select; keeping rule commented for reference)
    .searchbar select { padding: var(--space-2) var(--space-3); border: var(--border-width) solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-btn-bg); }
 */
