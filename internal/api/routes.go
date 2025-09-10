@@ -7,6 +7,7 @@ import (
     "strconv"
 
     "codex-watcher/internal/indexer"
+    "codex-watcher/internal/search"
 )
 
 var funcMap = template.FuncMap{
@@ -42,6 +43,22 @@ func AttachRoutes(mux *http.ServeMux, idx *indexer.Indexer) {
             }
         }
         writeJSON(w, 200, idx.Messages(sessionID, limit))
+    })
+    mux.HandleFunc("/api/search", func(w http.ResponseWriter, r *http.Request) {
+        q := r.URL.Query()
+        raw := q.Get("q")
+        limit := 50
+        offset := 0
+        if s := q.Get("limit"); s != "" {
+            if n, err := strconv.Atoi(s); err == nil { limit = n }
+        }
+        if s := q.Get("offset"); s != "" {
+            if n, err := strconv.Atoi(s); err == nil { offset = n }
+        }
+        scope := q.Get("in")
+        parsed := search.Parse(raw, scope)
+        res := search.Exec(idx, parsed, limit, offset)
+        writeJSON(w, 200, res)
     })
     mux.HandleFunc("/api/stats", func(w http.ResponseWriter, r *http.Request) {
         writeJSON(w, 200, idx.Stats())
