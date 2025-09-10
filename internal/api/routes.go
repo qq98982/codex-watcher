@@ -111,10 +111,12 @@ const indexHTML = `<!doctype html>
       el.innerHTML = data.map(function(m){
         var role = (m.role || (m.raw && m.raw.role) || '').toLowerCase();
         var isReasoning = (m.type === 'reasoning') || (m.raw && m.raw.type === 'reasoning');
+        var isFuncCall = (m.type === 'function_call') || (m.raw && m.raw.type === 'function_call');
+        var isFuncOut = (m.type === 'function_call_output') || (m.raw && m.raw.type === 'function_call_output');
         var rolePillClass = isReasoning ? 'role-assistant' : (role === 'user' ? 'role-user' : (role === 'assistant' ? 'role-assistant' : 'role-tool'));
         var ts = (m.ts ? new Date(m.ts).toLocaleString() : '');
         var model = (m.model ? '<span class="pill">' + m.model + '</span>' : '');
-        var pillLabel = isReasoning ? 'Assistant Thinking' : (role || 'message');
+        var pillLabel = isReasoning ? 'Assistant Thinking' : (isFuncCall ? ('Tool: ' + ((m.raw && m.raw.name) || 'tool')) : (isFuncOut ? ('Tool Output' + ((m.raw && m.raw.name) ? (': ' + m.raw.name) : '')) : (role || 'message')));
         var html = renderContent(m);
         if (!html || !html.trim()) return '';
         return '<div class="msg">'
@@ -143,6 +145,36 @@ const indexHTML = `<!doctype html>
           }
           return '';
         }).filter(Boolean).join('\n\n');
+      } else if (m && m.raw && (m.raw.type === 'function_call' || m.type === 'function_call')) {
+        // Render function call arguments; prefer commands for shell
+        var name = (m.raw && m.raw.name) || '';
+        var args = (m.raw && m.raw.arguments);
+        var obj = null;
+        if (args && typeof args === 'string') { try { obj = JSON.parse(args); } catch(e) { obj = null; } }
+        else if (args && typeof args === 'object') { obj = args; }
+        var cmdLine = '';
+        if (obj && Array.isArray(obj.command)) {
+          try { cmdLine = obj.command.join(' '); } catch(e) {}
+        }
+        if (cmdLine) {
+          md = '**' + (name || 'tool') + ' command**\n\n~~~bash\n' + cmdLine + '\n~~~';
+        } else {
+          md = '**' + (name || 'tool') + ' arguments**\n\n~~~json\n' + tryString(obj || args || m.raw) + '\n~~~';
+        }
+      } else if (m && m.raw && (m.raw.type === 'function_call_output' || m.type === 'function_call_output')) {
+        // Render function output; try to unwrap nested JSON with { output: "..." }
+        var out = (m.raw && m.raw.output);
+        var textOut = '';
+        if (typeof out === 'string') {
+          try { var parsed = JSON.parse(out); if (parsed && typeof parsed.output === 'string') textOut = parsed.output; } catch(e) { /* keep raw */ }
+          if (!textOut) textOut = out;
+        } else if (out && typeof out === 'object') {
+          if (typeof out.output === 'string') textOut = out.output; else textOut = tryString(out);
+        }
+        // Truncate very large outputs; show first 5000 chars
+        var MAX = 5000;
+        if (textOut && textOut.length > MAX) { textOut = textOut.slice(0, MAX) + '\n... (truncated)'; }
+        md = '**output**\n\n~~~text\n' + (textOut || '') + '\n~~~';
       } else if (m && m.raw && m.raw.summary) {
         var s = m.raw.summary;
         if (Array.isArray(s)) {
