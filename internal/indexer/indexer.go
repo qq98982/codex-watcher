@@ -104,10 +104,6 @@ func (x *Indexer) Run(ctxDone <-chan struct{}) {
 
 // scanAll locates known files and tails new lines.
 func (x *Indexer) scanAll() error {
-    // history.jsonl
-    history := filepath.Join(x.codexDir, "history.jsonl")
-    _ = x.tailFile("history", history)
-
     // sessions/*.jsonl
     sessionsDir := filepath.Join(x.codexDir, "sessions")
     _ = filepath.WalkDir(sessionsDir, func(path string, d os.DirEntry, err error) error {
