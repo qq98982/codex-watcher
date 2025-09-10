@@ -201,6 +201,7 @@ const indexHTML = `<!doctype html>
     function shJoin(arr){ try{ return (arr||[]).map(shQuote).join(' ');}catch(e){ return ''} }
     function truncate(s, n){ s=(s||'').toString(); if(s.length<=n) return s; return s.slice(0, Math.max(0,n-1)) + '…'; }
     function oneLine(s){ try{ return String(s||'').replace(/\s+/g,' ').trim(); }catch(e){ return ''} }
+    function capFirst(s){ try{ s=String(s||''); if(!s) return s; return s.charAt(0).toUpperCase()+s.slice(1); }catch(e){ return s } }
     function toggleOutput(id){
       var t = document.getElementById(id+':trunc');
       var f = document.getElementById(id+':full');
@@ -238,7 +239,9 @@ const indexHTML = `<!doctype html>
         var rolePillClass = isReasoning ? 'role-assistant' : (role === 'user' ? 'role-user' : (role === 'assistant' ? 'role-assistant' : 'role-tool'));
         var tsHTML = '';
         var model = (m.model ? '<span class="pill">' + m.model + '</span>' : '');
-        var pillLabel = isReasoning ? 'Assistant Thinking' : (isFuncCall ? ('Tool: ' + ((m.raw && m.raw.name) || 'tool')) : (isFuncOut ? ('Tool Output' + ((m.raw && m.raw.name) ? (': ' + m.raw.name) : '')) : (role || 'message')));
+        var toolNameRaw = (m.raw && m.raw.name) || 'tool';
+        var toolName = capFirst(toolNameRaw);
+        var pillLabel = isReasoning ? 'Assistant Thinking' : (isFuncCall ? ('Tool: ' + toolName) : (isFuncOut ? ('Tool Output' + ((m.raw && m.raw.name) ? (': ' + capFirst(m.raw.name)) : '')) : (role || 'message')));
         var id2 = null;
         var html = renderContent(m);
         if (isFuncCall || isFuncOut) {

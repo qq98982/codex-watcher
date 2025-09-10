@@ -71,9 +71,19 @@ func WriteSession(w io.Writer, idx *indexer.Indexer, sessionID string, format st
         if !inDate(m.Ts) { continue }
         if !allowedRole(m.Role) { continue }
         if !allowedType(m.Type) { continue }
+        // Export policy: always exclude tool outputs; and exclude Tool: shell invocations
+        typ := strings.ToLower(strings.TrimSpace(m.Type))
+        if typ == "function_call_output" { continue }
+        if typ == "function_call" {
+            tool := strings.ToLower(strings.TrimSpace(m.ToolName))
+            if tool == "" {
+                if n, ok := m.Raw["name"].(string); ok { tool = strings.ToLower(strings.TrimSpace(n)) }
+            }
+            if tool == "shell" { continue }
+        }
         if f.TextOnly {
-            if strings.ToLower(m.Type) == "function_call" || strings.ToLower(m.Type) == "function_call_output" { continue }
-            if strings.TrimSpace(m.Content) == "" && strings.ToLower(m.Type) != "reasoning" { continue }
+            if typ == "function_call" || typ == "function_call_output" { continue }
+            if strings.TrimSpace(m.Content) == "" && typ != "reasoning" { continue }
         }
         om := outMsg{
             ID:        m.ID,
@@ -365,7 +375,15 @@ func WriteByDirAllMarkdown(w io.Writer, idx *indexer.Indexer, cwdPrefix string, 
             typ := strings.ToLower(strings.TrimSpace(m.Type))
             role := strings.ToLower(strings.TrimSpace(m.Role))
             text := strings.TrimSpace(m.Content)
-
+            // Exclude tool outputs; exclude Tool: shell invocations
+            if typ == "function_call_output" { continue }
+            if typ == "function_call" {
+                tool := strings.ToLower(strings.TrimSpace(m.ToolName))
+                if tool == "" {
+                    if n, ok := m.Raw["name"].(string); ok { tool = strings.ToLower(strings.TrimSpace(n)) }
+                }
+                if tool == "shell" { continue }
+            }
             switch typ {
             case "function_call":
                 _, _ = io.WriteString(w, "### TOOLS\n\n")

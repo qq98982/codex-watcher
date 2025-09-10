@@ -24,6 +24,7 @@ import (
 type config struct {
     Port     string
     CodexDir string
+    Host     string
 }
 
 func getenv(key, def string) string {
@@ -37,6 +38,7 @@ func resolveConfig() (config, error) {
     var (
         portFlag  = flag.String("port", "", "port to listen on")
         dirFlag   = flag.String("codex", "", "path to ~/.codex directory")
+        hostFlag  = flag.String("host", "", "host interface to bind (default 127.0.0.1)")
         showUsage = flag.Bool("h", false, "show help")
     )
     flag.Parse()
@@ -47,12 +49,16 @@ func resolveConfig() (config, error) {
     cfg := config{
         Port:     getenv("PORT", "7077"),
         CodexDir: getenv("CODEX_DIR", filepath.Join(os.Getenv("HOME"), ".codex")),
+        Host:     getenv("HOST", "127.0.0.1"),
     }
     if *portFlag != "" {
         cfg.Port = *portFlag
     }
     if *dirFlag != "" {
         cfg.CodexDir = *dirFlag
+    }
+    if *hostFlag != "" {
+        cfg.Host = *hostFlag
     }
     if cfg.CodexDir == "" {
         return cfg, errors.New("could not resolve ~/.codex directory; set CODEX_DIR or --codex")
@@ -119,13 +125,13 @@ func runServer(cfg config) {
     api.AttachRoutes(mux, idx)
 
     srv := &http.Server{
-        Addr:              ":" + cfg.Port,
+        Addr:              cfg.Host + ":" + cfg.Port,
         Handler:           withLogging(mux),
         ReadHeaderTimeout: 5 * time.Second,
         IdleTimeout:       60 * time.Second,
     }
 
-    log.Printf("codex-watcher listening on http://localhost:%s (watching %s)\n", cfg.Port, cfg.CodexDir)
+    log.Printf("codex-watcher listening on http://%s:%s (watching %s)\n", cfg.Host, cfg.Port, cfg.CodexDir)
 
     // write pid file
     _ = writePIDFile(cfg, os.Getpid())
@@ -228,7 +234,12 @@ func cmdRestart(cfg config) error {
 }
 
 func cmdBrowse(cfg config) error {
-    url := "http://localhost:" + cfg.Port
+    // Prefer loopback for browsing if binding on wildcard
+    browseHost := cfg.Host
+    if browseHost == "" || browseHost == "0.0.0.0" || browseHost == ":" {
+        browseHost = "127.0.0.1"
+    }
+    url := "http://" + browseHost + ":" + cfg.Port
     // Ensure server is running; if not, start and wait briefly
     if err := ensureServerRunning(cfg); err != nil {
         return err
@@ -247,7 +258,11 @@ func cmdBrowse(cfg config) error {
 // ensureServerRunning checks if the HTTP endpoint responds; if not, it starts
 // the server and waits up to a few seconds for it to become ready.
 func ensureServerRunning(cfg config) error {
-    statsURL := "http://localhost:" + cfg.Port + "/api/stats"
+    statsURL := "http://" + cfg.Host + ":" + cfg.Port + "/api/stats"
+    // If binding on wildcard, probe loopback
+    if cfg.Host == "" || cfg.Host == "0.0.0.0" || cfg.Host == ":" {
+        statsURL = "http://127.0.0.1:" + cfg.Port + "/api/stats"
+    }
     if httpOK(statsURL, 300*time.Millisecond) {
         return nil
     }
