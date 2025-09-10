@@ -124,7 +124,9 @@ const indexHTML = `<!doctype html>
       if (b) b.textContent = isTruncShown ? 'Show less' : 'Show full';
       try { hljs.highlightAll(); } catch(e) {}
     }
+    let currentSessionId = null;
     async function selectSession(id) {
+      currentSessionId = id;
       const res = await fetch('/api/messages?session_id=' + encodeURIComponent(id) + '&limit=500');
       const data = await res.json();
       const el = document.getElementById('messages');
@@ -138,6 +140,25 @@ const indexHTML = `<!doctype html>
         var model = (m.model ? '<span class="pill">' + m.model + '</span>' : '');
         var pillLabel = isReasoning ? 'Assistant Thinking' : (isFuncCall ? ('Tool: ' + ((m.raw && m.raw.name) || 'tool')) : (isFuncOut ? ('Tool Output' + ((m.raw && m.raw.name) ? (': ' + m.raw.name) : '')) : (role || 'message')));
         var html = renderContent(m);
+        if (isFuncCall || isFuncOut) {
+          var id2 = 'tool-' + (m.id || Math.random().toString(36).slice(2));
+          var summary = '';
+          if (isFuncCall) {
+            var name = (m.raw && m.raw.name) || '';
+            var args = (m.raw && m.raw.arguments);
+            var obj = null; if (args && typeof args === 'string') { try{ obj = JSON.parse(args)}catch(e){} } else if (args && typeof args === 'object') { obj = args }
+            var cmdLine = (obj && Array.isArray(obj.command)) ? shJoin(obj.command) : '';
+            summary = cmdLine ? ('$ ' + cmdLine) : (name ? (name + ' arguments') : 'tool arguments');
+          } else if (isFuncOut) {
+            var out = (m.raw && m.raw.output); var textOut=''; var stderrOut='';
+            if (typeof out === 'string') { try{ var p=JSON.parse(out); if(p){ if(typeof p.output==='string') textOut=p.output; if(typeof p.stderr==='string') stderrOut=p.stderr; } }catch(e){} if(!textOut) textOut=out; }
+            else if (out && typeof out === 'object') { if (typeof out.output==='string') textOut=out.output; if(typeof out.stderr==='string') stderrOut=out.stderr; }
+            var parts=[]; if (textOut) parts.push('stdout'); if (stderrOut) parts.push('stderr'); summary = parts.length? ('output: ' + parts.join(', ')) : 'output';
+          }
+          var collapsedDiv = '<div id="'+id2+':collapsed" class="meta" style="font-family:ui-monospace, SFMono-Regular, Menlo, monospace;' + (collapseTools? '' : 'display:none;') + '">' + escapeHTML(summary) + ' <button class="btn" onclick="toggleTool(\''+id2+'\')">Expand</button></div>';
+          var expandedDiv = '<div id="'+id2+':expanded" ' + (collapseTools? 'style=\"display:none;\"' : '') + '>' + html + '<div class="meta"><button class="btn" onclick="toggleTool(\''+id2+'\')">Collapse</button></div></div>';
+          html = collapsedDiv + expandedDiv;
+        }
         if (!html || !html.trim()) return '';
         return '<div class="msg">'
           + '<div class="meta"><span class="pill ' + rolePillClass + '">' + pillLabel + '</span> <span>' + ts + '</span> ' + model + '</div>'
@@ -238,9 +259,11 @@ const indexHTML = `<!doctype html>
     function escapeHTML(s){ return (s||'').toString().replace(/[&<>"']/g, function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c]||c;}) }
     let onlyText = false;
     let viewMode = 'time-cwd'; // 'cwd-time' | 'time-cwd' | 'flat'
+    let collapseTools = true;
     let sessionsCache = [];
     function toggleOnlyText(v){ onlyText = !!v; renderSessions(sessionsCache); }
-    function setViewMode(v){ viewMode = v; try{ localStorage.setItem('viewMode', viewMode); }catch(e){} renderSessions(sessionsCache); }
+    function setViewMode(v){ viewMode = v; try{ localStorage.setItem('viewMode', viewMode); }catch(e){} renderSessions(sessionsCache); if (currentSessionId) selectSession(currentSessionId); }
+    function toggleCollapseTools(v){ collapseTools = !!v; try{ localStorage.setItem('collapseTools', collapseTools?'1':'0'); }catch(e){} if (currentSessionId) selectSession(currentSessionId); }
 
     function getCollapsed(key){ try{ return (localStorage.getItem('collapsed:'+key)||'0')==='1'; }catch(e){ return false; } }
     function setCollapsed(key, val){ try{ localStorage.setItem('collapsed:'+key, val?'1':'0'); }catch(e){} }
@@ -396,10 +419,13 @@ const indexHTML = `<!doctype html>
     window.addEventListener('load', ()=>{
       onlyText = false;
       try{ viewMode = localStorage.getItem('viewMode') || 'time-cwd'; }catch(e){ viewMode='time-cwd'; }
+      try{ collapseTools = (localStorage.getItem('collapseTools')||'1')==='1'; }catch(e){ collapseTools=true; }
       var tgl = document.getElementById('onlyTextToggle');
       if (tgl) tgl.checked = onlyText;
       var sel = document.getElementById('viewModeSelect');
       if (sel) sel.value = viewMode;
+      var ct = document.getElementById('collapseToolsToggle');
+      if (ct) ct.checked = collapseTools;
       const init = JSON.parse(document.getElementById('init-sessions').textContent);
       renderSessions(init);
     });
@@ -421,6 +447,10 @@ const indexHTML = `<!doctype html>
         <option value="cwd-time">目录 → 时间</option>
         <option value="flat">扁平</option>
       </select>
+    </label>
+    <label class="meta" style="margin-right:8px; display:flex; align-items:center; gap:6px;">
+      <input type="checkbox" id="collapseToolsToggle" checked onchange="toggleCollapseTools(this.checked)">
+      折叠工具
     </label>
     <label class="meta" style="margin-right:8px; display:flex; align-items:center; gap:6px;">
       <input type="checkbox" id="onlyTextToggle" checked onchange="toggleOnlyText(this.checked)">
