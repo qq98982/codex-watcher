@@ -403,7 +403,7 @@ const indexHTML = `<!doctype html>
       var groups = Object.keys(bySession).map(function(sid){ var hits=bySession[sid]; hits.sort(function(a,b){ var ta=(a.ts?Date.parse(a.ts):0), tb=(b.ts?Date.parse(b.ts):0); if(ta!==tb) return tb-ta; return (a.line_no||0)-(b.line_no||0); }); return {sid:sid, hits:hits}; });
       groups.sort(function(a,b){ var ta=(a.hits[0]&&a.hits[0].ts?Date.parse(a.hits[0].ts):0), tb=(b.hits[0]&&b.hits[0].ts?Date.parse(b.hits[0].ts):0); return tb-ta; });
       var sessMap = {}; try{ (sessionsCache||[]).forEach(function(s){ sessMap[s.id]=s; }); }catch(e){}
-      function nameForSession(id){ var s=sessMap[id]; if(!s) return id; var base = (s.cwd_base||''); return (base? (base+': '):'') + (s.title||id); }
+      function nameForSession(id){ var s=sessMap[id]; if(!s) return id; var base = (s.cwd_base||''); if (base) return base; return (s.title||id); }
       var html = '<div class="meta" style="padding:8px 10px;">Found ' + (res.total||0) + ' in ' + (res.took_ms||0) + ' ms' + (res.truncated? ' (truncated)':'' ) + '</div>';
       for (var g=0; g<groups.length; g++){
         var group = groups[g]; var key = 'search:session:'+group.sid; var collapsed = getCollapsed(key); var caret = collapsed ? '▸' : '▾';
