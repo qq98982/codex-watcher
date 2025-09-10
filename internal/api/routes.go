@@ -5,9 +5,12 @@ import (
     "html/template"
     "net/http"
     "strconv"
+    "strings"
+    "time"
 
     "codex-watcher/internal/indexer"
     "codex-watcher/internal/search"
+    "codex-watcher/internal/exporter"
 )
 
 var funcMap = template.FuncMap{
@@ -78,6 +81,83 @@ func AttachRoutes(mux *http.ServeMux, idx *indexer.Indexer) {
         }
         writeJSON(w, 200, map[string]any{"ok": true})
     })
+
+    // Export: single session
+    mux.HandleFunc("/api/export/session", func(w http.ResponseWriter, r *http.Request) {
+        q := r.URL.Query()
+        sessionID := q.Get("session_id")
+        if sessionID == "" { writeJSON(w, 400, map[string]any{"error":"missing session_id"}); return }
+        format := q.Get("format")
+        if format == "" { format = "md" }
+        // filters
+        var f exporter.Filters
+        if v := q.Get("text_only"); v != "" {
+            if v == "1" || v == "true" { f.TextOnly = true }
+        }
+        if v := q.Get("include_roles"); v != "" {
+            f.IncludeRoles = splitCSV(v)
+        }
+        if v := q.Get("include_types"); v != "" {
+            f.IncludeTypes = splitCSV(v)
+        }
+        if v := q.Get("limit"); v != "" {
+            if n, err := strconv.Atoi(v); err == nil { f.MaxMessages = n }
+        }
+        // lookup session for filename/meta
+        var sess indexer.Session
+        for _, s := range idx.Sessions() { if s.ID == sessionID { sess = s; break } }
+        if sess.ID == "" { writeJSON(w, 404, map[string]any{"error":"session not found"}); return }
+
+        // headers
+        switch format {
+        case "jsonl":
+            w.Header().Set("Content-Type", "application/x-ndjson; charset=utf-8")
+        case "json":
+            w.Header().Set("Content-Type", "application/json; charset=utf-8")
+        case "txt":
+            w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+        default:
+            w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+            format = "md"
+        }
+        w.Header().Set("X-Content-Type-Options", "nosniff")
+        w.Header().Set("Content-Disposition", "attachment; filename=\""+ exporter.BuildAttachmentName(sess, format) +"\"")
+
+        n, err := exporter.WriteSession(w, idx, sessionID, format, f)
+        if err != nil {
+            // best effort error write
+            w.WriteHeader(500)
+            _, _ = w.Write([]byte("export error: "+err.Error()))
+            return
+        }
+        if n == 0 {
+            // No content — easier for clients to detect
+            w.Header().Set("X-Export-Empty", "1")
+        }
+    })
+
+    // Export: by directory (markdown, all types)
+    mux.HandleFunc("/api/export/by_dir", func(w http.ResponseWriter, r *http.Request) {
+        q := r.URL.Query()
+        cwd := q.Get("cwd")
+        if cwd == "" { writeJSON(w, 400, map[string]any{"error":"missing cwd"}); return }
+        // optional dates
+        var after, before time.Time
+        if s := q.Get("after"); s != "" {
+            if t, err := time.Parse(time.RFC3339, s); err == nil { after = t }
+        }
+        if s := q.Get("before"); s != "" {
+            if t, err := time.Parse(time.RFC3339, s); err == nil { before = t }
+        }
+        // headers — always markdown
+        w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+        w.Header().Set("X-Content-Type-Options", "nosniff")
+        w.Header().Set("Content-Disposition", "attachment; filename=\""+ exporter.BuildDirAttachmentName(cwd, "all_md", "md") +"\"")
+
+        n, err := exporter.WriteByDirAllMarkdown(w, idx, cwd, after, before)
+        if err != nil { w.WriteHeader(500); _, _ = w.Write([]byte("export error: "+err.Error())); return }
+        if n == 0 { w.Header().Set("X-Export-Empty", "1") }
+    })
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -86,6 +166,15 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
     enc := json.NewEncoder(w)
     enc.SetEscapeHTML(false)
     _ = enc.Encode(v)
+}
+
+func splitCSV(s string) []string {
+    out := []string{}
+    for _, p := range strings.Split(s, ",") {
+        p = strings.TrimSpace(p)
+        if p != "" { out = append(out, p) }
+    }
+    return out
 }
 
 const indexHTML = `<!doctype html>
@@ -164,6 +253,7 @@ const indexHTML = `<!doctype html>
       if (a) a.textContent = isCollapsedShown ? '▾' : '▸';
       try { hljs.highlightAll(); } catch(e) {}
     }
+    // removed per simplification: no per-session export controls
     let currentSessionId = null;
     async function selectSession(id) {
       currentSessionId = id;
@@ -323,11 +413,12 @@ const indexHTML = `<!doctype html>
     let sessionsCache = [];
     window.pendingFocus = null; // { sessionId, messageId, lineNo }
     function setViewMode(v){ viewMode = v; try{ localStorage.setItem('viewMode', viewMode); }catch(e){} renderSessions(sessionsCache); if (currentSessionId) selectSession(currentSessionId); }
-    function toggleCollapseTools(v){ collapseTools = !!v; try{ localStorage.setItem('collapseTools', collapseTools?'1':'0'); }catch(e){} if (currentSessionId) selectSession(currentSessionId); }
+    // No Collapse Tools toggle UI; collapseTools stays true
 
-    function getCollapsed(key){ try{ return (localStorage.getItem('collapsed:'+key)||'0')==='1'; }catch(e){ return false; } }
+    function getCollapsed(key){ try{ return (localStorage.getItem('collapsed:'+key)||'1')==='1'; }catch(e){ return true; } }
     function setCollapsed(key, val){ try{ localStorage.setItem('collapsed:'+key, val?'1':'0'); }catch(e){} }
     function isBucketKey(key){ return key && key.indexOf('bucket:')===0 && key.indexOf(':cwd:')===-1 }
+    function isCwdKey(key){ return key && (key.indexOf('cwd:')===0 || key.indexOf(':cwd:')>0) }
     let lastSearch = {res:null, q:''};
     function toggleGroup(key){
       if (isBucketKey(key)) {
@@ -337,6 +428,21 @@ const indexHTML = `<!doctype html>
           var k = 'bucket:'+all[i];
           setCollapsed(k, k!==key); // collapse all except current
         }
+      } else if (isCwdKey(key)) {
+        var willOpen = getCollapsed(key); // currently collapsed? then will open
+        setCollapsed(key, !getCollapsed(key));
+        if (willOpen) {
+          // Collapse all other CWD groups (accordion behavior)
+          try {
+            for (var i=0;i<localStorage.length;i++){
+              var lk = localStorage.key(i);
+              if (!lk || lk.indexOf('collapsed:')!==0) continue;
+              var target = lk.slice('collapsed:'.length);
+              if (target === key) continue;
+              if (isCwdKey(target)) setCollapsed(target, true);
+            }
+          } catch(e){}
+        }
       } else {
         setCollapsed(key, !getCollapsed(key));
       }
@@ -345,6 +451,16 @@ const indexHTML = `<!doctype html>
       } else {
         renderSessions(sessionsCache);
       }
+    }
+
+    // Export directory with last-used mode/format
+    function exportDir(cwd){
+      try{
+        var mode = (localStorage.getItem('export:mode')||'dialog');
+        var format = (localStorage.getItem('export:format')||'md');
+        var url = '/api/export/by_dir?cwd=' + encodeURIComponent(cwd) + '&mode=' + encodeURIComponent(mode) + '&format=' + encodeURIComponent(format);
+        window.open(url, '_blank');
+      }catch(e){}
     }
 
     // Search
@@ -521,7 +637,7 @@ const indexHTML = `<!doctype html>
           }
           var lastAtG = (g.lastAt ? new Date(g.lastAt).toLocaleString() : '');
           return '<div class="group">'
-            + '<div class="item" onclick="toggleGroup(\'' + (key.replace(/'/g,"\'")) + '\')" title="' + (g.cwd||'') + '">' + caret + ' <strong style="font-weight:600">' + titleBase + '</strong><br /> <span class="meta">' + title + '</span><br /> <span class="meta">' + g.items.length + ' sessions • ' + lastAtG + '</span></div>'
+            + '<div class="item" onclick="toggleGroup(\'' + (key.replace(/'/g,"\'")) + '\')" title="' + (g.cwd||'') + '">' + caret + ' <strong style="font-weight:600">' + titleBase + '</strong><span class="meta" title="导出该目录" style="margin-left:6px; cursor:pointer" onclick="event.stopPropagation(); exportDir(\''+ (g.cwd||'').replace(/'/g,"\\'") +'\'); return false;">⤴︎</span><br /> <span class="meta">' + title + '</span><br /> <span class="meta">' + g.items.length + ' sessions • ' + lastAtG + '</span></div>'
             + (collapsed ? '' : sessionsHTML)
             + '</div>';
         }).join('');
@@ -557,7 +673,7 @@ const indexHTML = `<!doctype html>
               }
               var lastAtG = (g.lastAt ? new Date(g.lastAt).toLocaleString() : '');
               return '<div class="group">'
-                + '<div class="item" onclick="toggleGroup(\'' + key.replace(/'/g,"\'") + '\')" title="' + (g.cwd||'') + '">' + caret + ' <strong style="font-weight:600">' + titleBase + '</strong><br /> <span class="meta">' + title + '</span><br /> <span class="meta">' + g.items.length + ' sessions • ' + lastAtG + '</span></div>'
+                + '<div class="item" onclick="toggleGroup(\'' + key.replace(/'/g,"\'") + '\')" title="' + (g.cwd||'') + '">' + caret + ' <strong style="font-weight:600">' + titleBase + '</strong><span class="meta" title="导出该目录" style="margin-left:6px; cursor:pointer" onclick="event.stopPropagation(); exportDir(\''+ (g.cwd||'').replace(/'/g,"\\'") +'\'); return false;">⤴︎</span><br /> <span class="meta">' + title + '</span><br /> <span class="meta">' + g.items.length + ' sessions • ' + lastAtG + '</span></div>'
                 + (collapsed ? '' : sessionsHTML)
                 + '</div>';
             }).join('');
@@ -575,11 +691,8 @@ const indexHTML = `<!doctype html>
     }
     window.addEventListener('load', ()=>{
       try{ viewMode = localStorage.getItem('viewMode') || 'time-cwd'; }catch(e){ viewMode='time-cwd'; }
-      try{ collapseTools = (localStorage.getItem('collapseTools')||'1')==='1'; }catch(e){ collapseTools=true; }
       var sel = document.getElementById('viewModeSelect');
       if (sel) sel.value = viewMode;
-      var ct = document.getElementById('collapseToolsToggle');
-      if (ct) ct.checked = collapseTools;
       const init = JSON.parse(document.getElementById('init-sessions').textContent);
       sessionsCache = Array.isArray(init) ? init : [];
       renderSessions(sessionsCache);
@@ -595,10 +708,6 @@ const indexHTML = `<!doctype html>
       <div title="Messages">💬 {{ .Stats.TotalMessages }}</div>
     </div>
     <div style="flex:1"></div>
-    <label class="meta" style="margin-right:8px; display:flex; align-items:center; gap:6px;">
-      <input type="checkbox" id="collapseToolsToggle" checked onchange="toggleCollapseTools(this.checked)">
-      Collapse Tools
-    </label>
     <div class="searchbar" style="max-width:680px;">
       <input id="searchInput" type="text" placeholder="Search across sessions… (quotes, -exclude, OR, fields, /re/flags)" onkeydown="if(event.key==='Enter'){runSearch()}" />
       <select id="searchScope" title="Scope">
@@ -607,13 +716,13 @@ const indexHTML = `<!doctype html>
         <option value="all">All</option>
       </select>
       <button class="btn" onclick="runSearch()">Search</button>
-      <button class="btn" onclick="clearSearch()">Clear</button>
     </div>
   </header>
   <div class="container">
     <div class="sidebar">
       <div id="search-results" style="display:none"></div>
-      <div id="sidebar-controls" class="meta" style="padding:8px 10px; border-bottom:1px solid #eee; display:flex; align-items:center; gap:8px;">
+      <div id="sessions"></div>
+      <div id="sidebar-controls" class="meta" style="padding:8px 10px; border-top:1px solid #eee; display:flex; align-items:center; gap:8px;">
         <span>View</span>
         <select id="viewModeSelect" onchange="setViewMode(this.value)" class="btn" style="padding:4px 6px;">
           <option value="time-cwd">Time → Dir</option>
@@ -621,7 +730,6 @@ const indexHTML = `<!doctype html>
           <option value="flat">All by Time</option>
         </select>
       </div>
-      <div id="sessions"></div>
     </div>
     <div class="content" id="messages"></div>
   </div>
