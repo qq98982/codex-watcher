@@ -64,6 +64,8 @@
 
 /* Step 2: Components (migrated from template) */
 body { font-family: var(--font-sans); margin: 0; font-weight: var(--font-weight-ultralight); }
+/* Ensure form controls inherit the UI font + weight */
+input, select, textarea, button { font-family: inherit; font-weight: inherit; }
 header { padding: var(--space-4) var(--space-6); border-bottom: var(--border-width) solid var(--color-border); display: flex; gap: var(--space-6); align-items: center; }
 .container { display: grid; grid-template-columns: var(--sidebar-width) 1fr; height: calc(100vh - 52px); }
 .sidebar { border-right: var(--border-width) solid var(--color-border); overflow: auto; }
