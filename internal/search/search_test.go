@@ -44,3 +44,12 @@ func TestRegexTools(t *testing.T) {
     }
 }
 
+func TestInScopeOverridesParam(t *testing.T) {
+    idx := buildTestIndexer(t)
+    // Even if param says content, in:tools should switch to tool scope
+    q := Parse(`in:tools go build`, "content")
+    res := Exec(idx, q, 50, 0)
+    if res.Total <= 0 {
+        t.Fatalf("in:tools should search tools scope, got %d", res.Total)
+    }
+}

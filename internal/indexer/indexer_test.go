@@ -2,8 +2,10 @@ package indexer
 
 import (
     "encoding/json"
+    "strings"
     "testing"
     "time"
+    "unicode/utf8"
 )
 
 func TestTrimTitle(t *testing.T) {
@@ -13,8 +15,11 @@ func TestTrimTitle(t *testing.T) {
     }
     long := "x" + string(make([]byte, 200))
     got := trimTitle(long)
-    if len(got) != 81 || got[80] != '…' {
-        t.Fatalf("trimTitle long: len=%d suffix=%q", len(got), got[len(got)-1:])
+    if !strings.HasSuffix(got, "…") {
+        t.Fatalf("trimTitle long should end with ellipsis: %q", got)
+    }
+    if utf8.RuneCountInString(got) != 81 {
+        t.Fatalf("trimTitle long rune count mismatch: runes=%d, got=%q", utf8.RuneCountInString(got), got)
     }
 }
 
