@@ -114,6 +114,8 @@ const indexHTML = `<!doctype html>
     .pill.role-tool { background: #ffe4e6; }
     .stats { color: #333; font-size: 14px; }
     .btn { padding: 6px 10px; border: 1px solid #ccc; border-radius: 6px; background: #fff; cursor: pointer; }
+    .back-link { color: #333; text-decoration: none; }
+    .back-link:hover { text-decoration: underline; }
     .searchbar { display:flex; gap:8px; align-items:center; padding:8px 10px; }
     .searchbar input[type="text"] { flex:1; padding:6px 8px; border:1px solid #ddd; border-radius:6px; }
     .searchbar select { padding:6px 8px; border:1px solid #ddd; border-radius:6px; }
@@ -397,7 +399,7 @@ const indexHTML = `<!doctype html>
     function renderSearchResults(res, q){
       showSearchView();
       var el = document.getElementById('search-results'); if(!el) return;
-      if (!res || !Array.isArray(res.hits) || res.hits.length===0) { el.innerHTML = '<div class="meta" style="padding:8px 10px;">No results</div>'; return; }
+      if (!res || !Array.isArray(res.hits) || res.hits.length===0) { el.innerHTML = '<div class="meta" style="padding:8px 10px;"><a href="#" class="back-link" onclick="showSessionsList(); return false;">← Back</a></div><div class="meta" style="padding:8px 10px;">No results</div>'; return; }
       var bySession = {};
       for (var i=0;i<res.hits.length;i++){ var h=res.hits[i]; var sid=h.session_id; if(!bySession[sid]) bySession[sid]=[]; bySession[sid].push(h); }
       var groups = Object.keys(bySession).map(function(sid){ var hits=bySession[sid]; hits.sort(function(a,b){ var ta=(a.ts?Date.parse(a.ts):0), tb=(b.ts?Date.parse(b.ts):0); if(ta!==tb) return tb-ta; return (a.line_no||0)-(b.line_no||0); }); return {sid:sid, hits:hits}; });
@@ -405,7 +407,8 @@ const indexHTML = `<!doctype html>
       var sessMap = {}; try{ (sessionsCache||[]).forEach(function(s){ sessMap[s.id]=s; }); }catch(e){}
       function nameForSession(id){ var s=sessMap[id]; if(!s) return id; var base = (s.cwd_base||''); if (base) return base; return (s.title||id); }
       function startTimeForSession(id){ var s=sessMap[id]; if(!s) return ''; return s.first_at ? new Date(s.first_at).toLocaleString() : ''; }
-      var html = '<div class="meta" style="padding:8px 10px;">Found ' + (res.total||0) + ' in ' + (res.took_ms||0) + ' ms' + (res.truncated? ' (truncated)':'' ) + '</div>';
+      var html = '<div class="meta" style="padding:8px 10px;"><a href="#" class="back-link" onclick="showSessionsList(); return false;">← Back</a></div>';
+      html += '<div class="meta" style="padding:8px 10px;">Found ' + (res.total||0) + ' in ' + (res.took_ms||0) + ' ms' + (res.truncated? ' (truncated)':'' ) + '</div>';
       for (var g=0; g<groups.length; g++){
         var group = groups[g]; var key = 'search:session:'+group.sid; var collapsed = getCollapsed(key); var caret = collapsed ? '▸' : '▾';
         var startAt = startTimeForSession(group.sid);
