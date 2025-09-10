@@ -158,7 +158,20 @@ const indexHTML = `<!doctype html>
 
     function getCollapsed(key){ try{ return (localStorage.getItem('collapsed:'+key)||'0')==='1'; }catch(e){ return false; } }
     function setCollapsed(key, val){ try{ localStorage.setItem('collapsed:'+key, val?'1':'0'); }catch(e){} }
-    function toggleGroup(key){ setCollapsed(key, !getCollapsed(key)); renderSessions(sessionsCache); }
+    function isBucketKey(key){ return key && key.indexOf('bucket:')===0 && key.indexOf(':cwd:')===-1 }
+    function toggleGroup(key){
+      if (isBucketKey(key)) {
+        // Accordion behavior for buckets: open this one, close others
+        var all = ['Today','Yesterday','Last 7 days','Last 30 days','All'];
+        for (var i=0;i<all.length;i++){
+          var k = 'bucket:'+all[i];
+          setCollapsed(k, k!==key); // collapse all except current
+        }
+      } else {
+        setCollapsed(key, !getCollapsed(key));
+      }
+      renderSessions(sessionsCache);
+    }
 
     function formatPath(p){ if(!p) return '(Unknown)';
       // shorten /Users/<name> to ~
@@ -184,7 +197,16 @@ const indexHTML = `<!doctype html>
     function baseName(p){ if(!p) return '(Unknown)'; p = (p||'').replace(/\/+$/,''); var i=p.lastIndexOf('/'); return i>=0? p.slice(i+1):p; }
     function sortByLastAtDesc(a,b){ var da=new Date(a.last_at||0).getTime(); var db=new Date(b.last_at||0).getTime(); return db-da }
     function bucketLabel(dt){ var d=new Date(dt); if(isNaN(d)) return 'Older'; var now=new Date(); var oneDay=24*3600*1000; var startToday=new Date(now.getFullYear(),now.getMonth(),now.getDate()); var startYesterday=new Date(startToday.getTime()-oneDay); var start7=new Date(startToday.getTime()-7*oneDay); var start30=new Date(startToday.getTime()-30*oneDay); if(d>=startToday) return 'Today'; if(d>=startYesterday) return 'Yesterday'; if(d>=start7) return 'Last 7 days'; if(d>=start30) return 'Last 30 days'; return 'Older'; }
-    function bucketizeByTime(list){ var m={}; list.forEach(function(it){ var lbl=bucketLabel(it.last_at); (m[lbl]||(m[lbl]=[])).push(it); }); var order=['Today','Yesterday','Last 7 days','Last 30 days','Older']; var buckets=[]; order.forEach(function(lbl){ if(m[lbl]&&m[lbl].length){ m[lbl].sort(sortByLastAtDesc); buckets.push({label:lbl, items:m[lbl]}); } }); return buckets; }
+    function bucketizeByTime(list){
+      var m={}; list.forEach(function(it){ var lbl=bucketLabel(it.last_at); (m[lbl]||(m[lbl]=[])).push(it); });
+      var order=['Today','Yesterday','Last 7 days','Last 30 days'];
+      var buckets=[];
+      order.forEach(function(lbl){ if(m[lbl]&&m[lbl].length){ m[lbl].sort(sortByLastAtDesc); buckets.push({label:lbl, items:m[lbl]}); } });
+      // Add an "All" bucket with everything, sorted
+      var all = list.slice().sort(sortByLastAtDesc);
+      buckets.push({label:'All', items: all});
+      return buckets;
+    }
     async function refreshSessions(){ const r=await fetch('/api/sessions'); const data = await r.json(); renderSessions(data) }
     function renderSessions(list){
       sessionsCache = Array.isArray(list) ? list : [];
