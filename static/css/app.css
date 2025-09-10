@@ -97,6 +97,17 @@ select.btn { padding-right: var(--space-10); }
 .searchbar { display:flex; gap: var(--space-3); align-items:center; padding: var(--space-3) var(--space-4); }
 .searchbar input[type="text"] { flex:1; padding: var(--space-2) var(--space-3); border: var(--border-width) solid #ddd; border-radius: var(--radius-sm); }
 .searchbar select { padding: var(--space-2) var(--space-3); border: var(--border-width) solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-btn-bg); padding-right: var(--space-10); }
+/* On focus, match border to page background to avoid dark ring */
+.searchbar input[type="text"]:focus,
+.searchbar input[type="text"]:focus-visible,
+.searchbar select:focus,
+.searchbar select:focus-visible,
+.searchbar button.btn:focus,
+.searchbar button.btn:focus-visible {
+  outline: none;
+  box-shadow: none;
+  border-color: var(--color-bg-page);
+}
 .result-item { padding: var(--space-3) var(--space-8); border-bottom: var(--border-width) solid var(--color-border-subtle); cursor: pointer; }
 .result-item:hover { background: var(--color-item-hover); }
 .group .result-item { padding-left: var(--space-7); }
