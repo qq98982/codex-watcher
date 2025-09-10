@@ -148,6 +148,7 @@ const indexHTML = `<!doctype html>
         var isFuncOut = (m.type === 'function_call_output') || (m.raw && m.raw.type === 'function_call_output');
         var rolePillClass = isReasoning ? 'role-assistant' : (role === 'user' ? 'role-user' : (role === 'assistant' ? 'role-assistant' : 'role-tool'));
         var ts = (m.ts ? new Date(m.ts).toLocaleString() : '');
+        var tsHTML = ts ? (' <span>' + ts + '</span>') : '';
         var model = (m.model ? '<span class="pill">' + m.model + '</span>' : '');
         var pillLabel = isReasoning ? 'Assistant Thinking' : (isFuncCall ? ('Tool: ' + ((m.raw && m.raw.name) || 'tool')) : (isFuncOut ? ('Tool Output' + ((m.raw && m.raw.name) ? (': ' + m.raw.name) : '')) : (role || 'message')));
         var id2 = null;
@@ -178,7 +179,7 @@ const indexHTML = `<!doctype html>
           arrow = ' <span id="'+id2+':arrow" class="pill" style="cursor:pointer" onclick="toggleTool(\''+id2+'\')">' + sym + '</span>';
         }
         return '<div class="msg">'
-          + '<div class="meta"><span class="pill ' + rolePillClass + '">' + pillLabel + '</span>' + arrow + ' <span>' + ts + '</span> ' + model + '</div>'
+          + '<div class="meta"><span class="pill ' + rolePillClass + '">' + pillLabel + '</span>' + arrow + tsHTML + ' ' + model + '</div>'
           + '<div class="content">' + html + '</div>'
           + '</div>';
       }).filter(Boolean).join('');
