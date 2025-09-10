@@ -206,9 +206,9 @@ const indexHTML = `<!doctype html>
       var f = document.getElementById(id+':full');
       var b = document.getElementById(id+':btn');
       if (!t || !f) return;
-      var isTruncShown = t.style.display !== 'none';
-      t.style.display = isTruncShown ? 'none' : '';
-      f.style.display = isTruncShown ? '' : 'none';
+      var isTruncShown = !t.classList.contains('hidden');
+      if (isTruncShown) { t.classList.add('hidden'); f.classList.remove('hidden'); }
+      else { t.classList.remove('hidden'); f.classList.add('hidden'); }
       if (b) b.textContent = isTruncShown ? 'Show less' : 'Show full';
       try { hljs.highlightAll(); } catch(e) {}
     }
@@ -217,9 +217,9 @@ const indexHTML = `<!doctype html>
       var e = document.getElementById(id+':expanded');
       var a = document.getElementById(id+':arrow');
       if (!c || !e) return;
-      var isCollapsedShown = c.style.display !== 'none';
-      c.style.display = isCollapsedShown ? 'none' : '';
-      e.style.display = isCollapsedShown ? '' : 'none';
+      var isCollapsedShown = !c.classList.contains('hidden');
+      if (isCollapsedShown) { c.classList.add('hidden'); e.classList.remove('hidden'); }
+      else { c.classList.remove('hidden'); e.classList.add('hidden'); }
       if (a) a.textContent = isCollapsedShown ? '▾' : '▸';
       try { hljs.highlightAll(); } catch(e) {}
     }
@@ -256,15 +256,15 @@ const indexHTML = `<!doctype html>
             else if (out && typeof out === 'object') { if (typeof out.output==='string') textOut=out.output; if(typeof out.stderr==='string') stderrOut=out.stderr; }
             var parts=[]; if (textOut) parts.push('stdout'); if (stderrOut) parts.push('stderr'); summary = parts.length? ('output: ' + parts.join(', ')) : 'output';
           }
-          var collapsedDiv = '<div id="'+id2+':collapsed" class="meta" style="font-family:ui-monospace, SFMono-Regular, Menlo, monospace;' + (collapseTools? '' : 'display:none;') + '"><p style="margin:6px 0 0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' + escapeHTML(truncate(oneLine(summary), 140)) + '</p></div>';
-          var expandedDiv = '<div id="'+id2+':expanded" ' + (collapseTools? 'style=\"display:none;\"' : '') + '>' + html + '</div>';
+          var collapsedDiv = '<div id="'+id2+':collapsed" class="meta mono' + (collapseTools? '' : ' hidden') + '"><p class="mt-1 ellipsis">' + escapeHTML(truncate(oneLine(summary), 140)) + '</p></div>';
+          var expandedDiv = '<div id="'+id2+':expanded" class="' + (collapseTools? 'hidden' : '') + '">' + html + '</div>';
           html = collapsedDiv + expandedDiv;
         }
         if (!html || !html.trim()) return '';
         var arrow = '';
         if (id2) {
           var sym = collapseTools ? '▸' : '▾';
-          arrow = ' <span id="'+id2+':arrow" class="pill" style="cursor:pointer" onclick="toggleTool(\''+id2+'\')">' + sym + '</span>';
+          arrow = ' <span id="'+id2+':arrow" class="pill clickable" onclick="toggleTool(\''+id2+'\')">' + sym + '</span>';
         }
         var anchorId = (m.id && String(m.id).trim() !== '') ? ('msg-' + m.id) : ('msg-L' + (m.line_no || 0));
         return '<div class="msg" id="' + anchorId + '">'
@@ -273,7 +273,7 @@ const indexHTML = `<!doctype html>
           + '</div>';
       }).filter(Boolean).join('');
       if (!el.innerHTML || !el.innerHTML.trim()) {
-        el.innerHTML = '<div class="meta" style="padding:12px;color:#666;">此会话没有可显示的文本</div>';
+        el.innerHTML = '<div class="meta empty-hint">此会话没有可显示的文本</div>';
       }
       try { hljs.highlightAll(); } catch(e) {}
       // scroll to a pending focus target if requested
@@ -347,12 +347,12 @@ const indexHTML = `<!doctype html>
           var trunc = body.length>MAX ? body.slice(0,MAX) + '\n... (truncated)' : body;
           if (full.length>MAX) {
             return '<div><div class="meta"><strong>' + label + '</strong> · <button id="'+id+':btn" class="btn" onclick="toggleOutput(\''+id+'\')">Show full</button></div>'
-              + '<pre id="'+id+':trunc" style="margin-top:6px; white-space:pre; overflow:auto;">' + escapeHTML(trunc) + '</pre>'
-              + '<pre id="'+id+':full" style="display:none; margin-top:6px; white-space:pre; overflow:auto;">' + escapeHTML(full) + '</pre>'
+              + '<pre id="'+id+':trunc" class="mt-1">' + escapeHTML(trunc) + '</pre>'
+              + '<pre id="'+id+':full" class="hidden mt-1">' + escapeHTML(full) + '</pre>'
               + '</div>';
           }
           return '<div><div class="meta"><strong>' + label + '</strong></div>'
-            + '<pre style="margin-top:6px; white-space:pre; overflow:auto;">' + escapeHTML(full) + '</pre>'
+            + '<pre class="mt-1">' + escapeHTML(full) + '</pre>'
             + '</div>';
         }
         htmlBuilt = section('stdout', textOut) + (stderrOut? section('stderr', stderrOut) : '');
@@ -456,17 +456,17 @@ const indexHTML = `<!doctype html>
       var sr = document.getElementById('search-results');
       var sc = document.getElementById('sidebar-controls');
       var sl = document.getElementById('sessions');
-      if (sr) sr.style.display = '';
-      if (sc) sc.style.display = 'none';
-      if (sl) sl.style.display = 'none';
+      if (sr) sr.classList.remove('hidden');
+      if (sc) sc.classList.add('hidden');
+      if (sl) sl.classList.add('hidden');
     }
     function showSessionsList(){
       var sr = document.getElementById('search-results');
       var sc = document.getElementById('sidebar-controls');
       var sl = document.getElementById('sessions');
-      if (sr) sr.style.display = 'none';
-      if (sc) sc.style.display = '';
-      if (sl) sl.style.display = '';
+      if (sr) sr.classList.add('hidden');
+      if (sc) sc.classList.remove('hidden');
+      if (sl) sl.classList.remove('hidden');
     }
     function tokensFromQuery(q){
       if(!q) return [];
@@ -511,7 +511,7 @@ const indexHTML = `<!doctype html>
     function renderSearchResults(res, q){
       showSearchView();
       var el = document.getElementById('search-results'); if(!el) return;
-      if (!res || !Array.isArray(res.hits) || res.hits.length===0) { el.innerHTML = '<div class="meta" style="padding:8px 10px;"><a href="#" class="back-link" onclick="showSessionsList(); return false;">← Back</a></div><div class="meta" style="padding:8px 10px;">No results</div>'; return; }
+      if (!res || !Array.isArray(res.hits) || res.hits.length===0) { el.innerHTML = '<div class="meta pad-sm"><a href="#" class="back-link" onclick="showSessionsList(); return false;">← Back</a></div><div class="meta pad-sm">No results</div>'; return; }
       var bySession = {};
       for (var i=0;i<res.hits.length;i++){ var h=res.hits[i]; var sid=h.session_id; if(!bySession[sid]) bySession[sid]=[]; bySession[sid].push(h); }
       var groups = Object.keys(bySession).map(function(sid){ var hits=bySession[sid]; hits.sort(function(a,b){ var ta=(a.ts?Date.parse(a.ts):0), tb=(b.ts?Date.parse(b.ts):0); if(ta!==tb) return tb-ta; return (a.line_no||0)-(b.line_no||0); }); return {sid:sid, hits:hits}; });
@@ -519,8 +519,8 @@ const indexHTML = `<!doctype html>
       var sessMap = {}; try{ (sessionsCache||[]).forEach(function(s){ sessMap[s.id]=s; }); }catch(e){}
       function nameForSession(id){ var s=sessMap[id]; if(!s) return id; var base = (s.cwd_base||''); if (base) return base; return (s.title||id); }
       function startTimeForSession(id){ var s=sessMap[id]; if(!s) return ''; return s.first_at ? new Date(s.first_at).toLocaleString() : ''; }
-      var html = '<div class="meta" style="padding:8px 10px;"><a href="#" class="back-link" onclick="showSessionsList(); return false;">← Back</a></div>';
-      html += '<div class="meta" style="padding:8px 10px;">Found ' + (res.total||0) + ' in ' + (res.took_ms||0) + ' ms' + (res.truncated? ' (truncated)':'' ) + '</div>';
+      var html = '<div class="meta pad-sm"><a href="#" class="back-link" onclick="showSessionsList(); return false;">← Back</a></div>';
+      html += '<div class="meta pad-sm">Found ' + (res.total||0) + ' in ' + (res.took_ms||0) + ' ms' + (res.truncated? ' (truncated)':'' ) + '</div>';
       for (var g=0; g<groups.length; g++){
         var group = groups[g]; var key = 'search:session:'+group.sid; var collapsed = getCollapsed(key); var caret = collapsed ? '▸' : '▾';
         var startAt = startTimeForSession(group.sid);
@@ -630,10 +630,10 @@ const indexHTML = `<!doctype html>
             }).join('');
           }
           var lastAtG = (g.lastAt ? new Date(g.lastAt).toLocaleString() : '');
-          return '<div class="group">'
-            + '<div class="item" onclick="toggleGroup(\'' + (key.replace(/'/g,"\'")) + '\')" title="' + (g.cwd||'') + '">' + caret + ' <strong style="font-weight:600">' + titleBase + '</strong><span class="meta" title="导出该目录" style="margin-left:6px; cursor:pointer" onclick="event.stopPropagation(); exportDir(\''+ (g.cwd||'').replace(/'/g,"\\'") +'\'); return false;">⤴︎</span><br /> <span class="meta">' + title + '</span><br /> <span class="meta">' + g.items.length + ' sessions • ' + lastAtG + '</span></div>'
-            + (collapsed ? '' : sessionsHTML)
-            + '</div>';
+              return '<div class="group">'
+                + '<div class="item" onclick="toggleGroup(\'' + (key.replace(/'/g,"\'")) + '\')" title="' + (g.cwd||'') + '">' + caret + ' <strong class="fw-600">' + titleBase + '</strong><span class="meta ml-1 clickable" title="导出该目录" onclick="event.stopPropagation(); exportDir(\''+ (g.cwd||'').replace(/'/g,"\\'") +'\'); return false;">⤴︎</span><br /> <span class="meta">' + title + '</span><br /> <span class="meta">' + g.items.length + ' sessions • ' + lastAtG + '</span></div>'
+                + (collapsed ? '' : sessionsHTML)
+                + '</div>';
         }).join('');
         if (!currentSessionId || !hasSession(filtered, currentSessionId)) {
           var first2 = s.querySelector('.group .item[data-id]');
@@ -667,7 +667,7 @@ const indexHTML = `<!doctype html>
               }
               var lastAtG = (g.lastAt ? new Date(g.lastAt).toLocaleString() : '');
               return '<div class="group">'
-                + '<div class="item" onclick="toggleGroup(\'' + key.replace(/'/g,"\'") + '\')" title="' + (g.cwd||'') + '">' + caret + ' <strong style="font-weight:600">' + titleBase + '</strong><span class="meta" title="导出该目录" style="margin-left:6px; cursor:pointer" onclick="event.stopPropagation(); exportDir(\''+ (g.cwd||'').replace(/'/g,"\\'") +'\'); return false;">⤴︎</span><br /> <span class="meta">' + title + '</span><br /> <span class="meta">' + g.items.length + ' sessions • ' + lastAtG + '</span></div>'
+                + '<div class="item" onclick="toggleGroup(\'' + key.replace(/'/g,"\'") + '\')" title="' + (g.cwd||'') + '">' + caret + ' <strong class="fw-600">' + titleBase + '</strong><span class="meta ml-1 clickable" title="导出该目录" onclick="event.stopPropagation(); exportDir(\''+ (g.cwd||'').replace(/'/g,"\\'") +'\'); return false;">⤴︎</span><br /> <span class="meta">' + title + '</span><br /> <span class="meta">' + g.items.length + ' sessions • ' + lastAtG + '</span></div>'
                 + (collapsed ? '' : sessionsHTML)
                 + '</div>';
             }).join('');
@@ -702,13 +702,13 @@ const indexHTML = `<!doctype html>
 </head>
 <body>
   <header>
-    <div style="font-weight:700">Codex Watcher</div>
+    <div class="fw-700">Codex Watcher</div>
     <div class="row stats">
       <div title="Sessions">🗂 {{ .Stats.TotalSessions }}</div>
       <div title="Messages">💬 {{ .Stats.TotalMessages }}</div>
     </div>
-    <div style="flex:1"></div>
-    <div class="searchbar" style="max-width:680px;">
+    <div class="flex-1"></div>
+    <div class="searchbar searchbar--max">
       <input id="searchInput" type="text" placeholder="Search across sessions… (quotes, -exclude, OR, fields, /re/flags)" onkeydown="if(event.key==='Enter'){runSearch()}" />
       <select id="searchScope" title="Scope">
         <option value="content">Content</option>
@@ -720,11 +720,11 @@ const indexHTML = `<!doctype html>
   </header>
   <div class="container">
     <div class="sidebar">
-      <div id="search-results" style="display:none"></div>
+      <div id="search-results" class="hidden"></div>
       <div id="sessions"></div>
-      <div id="sidebar-controls" class="meta" style="padding:8px 10px; border-top:1px solid #eee; display:flex; align-items:center; gap:8px;">
+      <div id="sidebar-controls" class="meta sidebar__controls">
         <span>View</span>
-        <select id="viewModeSelect" onchange="setViewMode(this.value)" class="btn" style="padding:4px 6px;">
+        <select id="viewModeSelect" onchange="setViewMode(this.value)" class="btn pad-xs">
           <option value="time-cwd">Time → Dir</option>
           <option value="cwd-time">Dir → Time</option>
           <option value="flat">All by Time</option>

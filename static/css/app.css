@@ -53,6 +53,11 @@
 .fw-700 { font-weight: var(--font-weight-bold); }
 .pad-xs { padding: 4px 6px; }
 .pad-sm { padding: var(--space-3) var(--space-4); }
+.empty-hint { padding: var(--space-5); color: var(--color-muted); }
+
+/* Sidebar controls and searchbar max width */
+.sidebar__controls { padding: var(--space-3) var(--space-4); border-top: var(--border-width) solid var(--color-border); display:flex; align-items:center; gap: var(--space-3); }
+.searchbar--max { max-width: var(--search-max-width); }
 
 /* Step 2: Components (migrated from template) */
 body { font-family: var(--font-sans); margin: 0; }
