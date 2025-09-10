@@ -415,7 +415,7 @@ const indexHTML = `<!doctype html>
     function setViewMode(v){ viewMode = v; try{ localStorage.setItem('viewMode', viewMode); }catch(e){} renderSessions(sessionsCache); if (currentSessionId) selectSession(currentSessionId); }
     // No Collapse Tools toggle UI; collapseTools stays true
 
-    function getCollapsed(key){ try{ return (localStorage.getItem('collapsed:'+key)||'0')==='1'; }catch(e){ return false; } }
+    function getCollapsed(key){ try{ return (localStorage.getItem('collapsed:'+key)||'1')==='1'; }catch(e){ return true; } }
     function setCollapsed(key, val){ try{ localStorage.setItem('collapsed:'+key, val?'1':'0'); }catch(e){} }
     function isBucketKey(key){ return key && key.indexOf('bucket:')===0 && key.indexOf(':cwd:')===-1 }
     let lastSearch = {res:null, q:''};
