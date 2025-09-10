@@ -454,9 +454,9 @@ const indexHTML = `<!doctype html>
     <label class="meta" style="margin-right:8px; display:flex; align-items:center; gap:6px;">
       View
       <select id="viewModeSelect" onchange="setViewMode(this.value)" class="btn" style="padding:4px 6px;">
-        <option value="time-cwd">时间 → 目录</option>
-        <option value="cwd-time">目录 → 时间</option>
-        <option value="flat">扁平</option>
+        <option value="time-cwd">Time → Dir</option>
+        <option value="cwd-time">Dir → Time</option>
+        <option value="flat">All by Time</option>
       </select>
     </label>
     <label class="meta" style="margin-right:8px; display:flex; align-items:center; gap:6px;">
