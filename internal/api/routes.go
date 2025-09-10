@@ -151,14 +151,14 @@ const indexHTML = `<!doctype html>
 
     function escapeHTML(s){ return (s||'').toString().replace(/[&<>"']/g, function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c]||c;}) }
     let onlyText = false;
-    let groupBy = false; // group by CWD
+    let viewMode = 'time-cwd'; // 'cwd-time' | 'time-cwd' | 'flat'
     let sessionsCache = [];
     function toggleOnlyText(v){ onlyText = !!v; renderSessions(sessionsCache); }
-    function toggleGroupBy(v){ groupBy = !!v; try{ localStorage.setItem('groupByCWD', groupBy?'1':'0'); }catch(e){} renderSessions(sessionsCache); }
+    function setViewMode(v){ viewMode = v; try{ localStorage.setItem('viewMode', viewMode); }catch(e){} renderSessions(sessionsCache); }
 
-    function getCollapsed(cwd){ try{ return (localStorage.getItem('cwdCollapsed:'+cwd)||'0')==='1'; }catch(e){ return false; } }
-    function setCollapsed(cwd, val){ try{ localStorage.setItem('cwdCollapsed:'+cwd, val?'1':'0'); }catch(e){} }
-    function toggleGroup(cwd){ setCollapsed(cwd, !getCollapsed(cwd)); renderSessions(sessionsCache); }
+    function getCollapsed(key){ try{ return (localStorage.getItem('collapsed:'+key)||'0')==='1'; }catch(e){ return false; } }
+    function setCollapsed(key, val){ try{ localStorage.setItem('collapsed:'+key, val?'1':'0'); }catch(e){} }
+    function toggleGroup(key){ setCollapsed(key, !getCollapsed(key)); renderSessions(sessionsCache); }
 
     function formatPath(p){ if(!p) return '(Unknown)';
       // shorten /Users/<name> to ~
@@ -181,6 +181,10 @@ const indexHTML = `<!doctype html>
       groups.sort(function(a,b){ var da = new Date(a.lastAt||0).getTime(); var db = new Date(b.lastAt||0).getTime(); return db-da; });
       return groups;
     }
+    function baseName(p){ if(!p) return '(Unknown)'; p = (p||'').replace(/\/+$/,''); var i=p.lastIndexOf('/'); return i>=0? p.slice(i+1):p; }
+    function sortByLastAtDesc(a,b){ var da=new Date(a.last_at||0).getTime(); var db=new Date(b.last_at||0).getTime(); return db-da }
+    function bucketLabel(dt){ var d=new Date(dt); if(isNaN(d)) return 'Older'; var now=new Date(); var oneDay=24*3600*1000; var startToday=new Date(now.getFullYear(),now.getMonth(),now.getDate()); var startYesterday=new Date(startToday.getTime()-oneDay); var start7=new Date(startToday.getTime()-7*oneDay); var start30=new Date(startToday.getTime()-30*oneDay); if(d>=startToday) return 'Today'; if(d>=startYesterday) return 'Yesterday'; if(d>=start7) return 'Last 7 days'; if(d>=start30) return 'Last 30 days'; return 'Older'; }
+    function bucketizeByTime(list){ var m={}; list.forEach(function(it){ var lbl=bucketLabel(it.last_at); (m[lbl]||(m[lbl]=[])).push(it); }); var order=['Today','Yesterday','Last 7 days','Last 30 days','Older']; var buckets=[]; order.forEach(function(lbl){ if(m[lbl]&&m[lbl].length){ m[lbl].sort(sortByLastAtDesc); buckets.push({label:lbl, items:m[lbl]}); } }); return buckets; }
     async function refreshSessions(){ const r=await fetch('/api/sessions'); const data = await r.json(); renderSessions(data) }
     function renderSessions(list){
       sessionsCache = Array.isArray(list) ? list : [];
@@ -190,7 +194,7 @@ const indexHTML = `<!doctype html>
       const hint = document.getElementById('hiddenHint');
       if (hint) hint.textContent = (onlyText && hidden>0) ? ('隐藏 ' + hidden + ' 个无文本会话') : '';
       const s = document.getElementById('sessions');
-      if(!groupBy){
+      if(viewMode === 'flat'){
         s.innerHTML = filtered.map(function(it){
           var pills = Object.keys(it.models||{}).map(function(m){ return '<span class="pill">'+m+'</span>'; }).join('');
           var title = (it.title || it.id);
@@ -205,12 +209,14 @@ const indexHTML = `<!doctype html>
         }).join('');
         var first = s.querySelector('.item');
         if (first && first.dataset && first.dataset.id) { selectSession(first.dataset.id); }
-      } else {
+      } else if (viewMode === 'cwd-time') {
         var groups = groupByCWD(filtered);
         s.innerHTML = groups.map(function(g){
-          var collapsed = getCollapsed(g.cwd);
+          var key = 'cwd:'+ (g.cwd||'');
+          var collapsed = getCollapsed(key);
           var caret = collapsed ? '▸' : '▾';
           var title = formatPath(g.cwd);
+          var titleBase = baseName(g.cwd);
           var sessionsHTML = '';
           if(!collapsed){
             sessionsHTML = g.items.map(function(it){
@@ -228,21 +234,65 @@ const indexHTML = `<!doctype html>
           }
           var lastAtG = (g.lastAt ? new Date(g.lastAt).toLocaleString() : '');
           return '<div class="group">'
-            + '<div class="item" onclick="toggleGroup(\'' + (g.cwd||'') + '\')" title="' + (g.cwd||'') + '">' + caret + ' <strong style="font-weight:600">' + title + '</strong>' + ' <span class="meta">(' + g.items.length + ' sessions • ' + lastAtG + ')</span></div>'
+            + '<div class="item" onclick="toggleGroup(\'' + (key.replace(/'/g,"\'")) + '\')" title="' + (g.cwd||'') + '">' + caret + ' <strong style="font-weight:600">' + titleBase + '</strong> <span class="meta">' + title + '</span> <span class="meta">(' + g.items.length + ' sessions • ' + lastAtG + ')</span></div>'
             + (collapsed ? '' : sessionsHTML)
             + '</div>';
         }).join('');
         var first2 = s.querySelector('.group .item[data-id]');
         if (first2 && first2.dataset && first2.dataset.id) { selectSession(first2.dataset.id); }
+      } else if (viewMode === 'time-cwd') {
+        var buckets = bucketizeByTime(filtered);
+        s.innerHTML = buckets.map(function(b){
+          var bkey = 'bucket:'+b.label;
+          var bCollapsed = getCollapsed(bkey);
+          var bCaret = bCollapsed ? '▸' : '▾';
+          var inner = '';
+          if(!bCollapsed){
+            var groups = groupByCWD(b.items);
+            inner = groups.map(function(g){
+              var key = bkey+':cwd:'+(g.cwd||'');
+              var collapsed = getCollapsed(key);
+              var caret = collapsed ? '▸' : '▾';
+              var title = formatPath(g.cwd);
+              var titleBase = baseName(g.cwd);
+              var sessionsHTML = '';
+              if(!collapsed){
+                sessionsHTML = g.items.map(function(it){
+                  var pills = Object.keys(it.models||{}).map(function(m){ return '<span class="pill">'+m+'</span>'; }).join('');
+                  var title2 = (it.title || it.id);
+                  var firstAt = (it.first_at ? new Date(it.first_at).toLocaleString() : '');
+                  var lastAt = (it.last_at ? new Date(it.last_at).toLocaleString() : '');
+                  var msgCount = (onlyText ? (it.text_count||0) : (it.message_count||0));
+                  return '<div class="item" data-id="' + it.id + '" onclick="selectSession(\'' + it.id + '\')">'
+                    + '<div><strong>' + title2 + '</strong></div>'
+                    + '<div class="meta">' + msgCount + ' msgs • ' + firstAt + ' → ' + lastAt + '</div>'
+                    + '<div class="meta">' + pills + '</div>'
+                    + '</div>';
+                }).join('');
+              }
+              var lastAtG = (g.lastAt ? new Date(g.lastAt).toLocaleString() : '');
+              return '<div class="group">'
+                + '<div class="item" onclick="toggleGroup(\'' + key.replace(/'/g,"\'") + '\')" title="' + (g.cwd||'') + '">' + caret + ' <strong style="font-weight:600">' + titleBase + '</strong> <span class="meta">' + title + '</span> <span class="meta">(' + g.items.length + ' sessions • ' + lastAtG + ')</span></div>'
+                + (collapsed ? '' : sessionsHTML)
+                + '</div>';
+            }).join('');
+          }
+          return '<div class="group">'
+            + '<div class="item" onclick="toggleGroup(\'' + bkey + '\')"><strong>' + b.label + '</strong> <span class="meta">(' + b.items.length + ' sessions)</span> ' + bCaret + '</div>'
+            + (bCollapsed ? '' : inner)
+            + '</div>';
+        }).join('');
+        var first3 = s.querySelector('.group .item[data-id]');
+        if (first3 && first3.dataset && first3.dataset.id) { selectSession(first3.dataset.id); }
       }
     }
     window.addEventListener('load', ()=>{
       onlyText = false;
-      try{ groupBy = (localStorage.getItem('groupByCWD')||'0')==='1'; }catch(e){ groupBy=false; }
+      try{ viewMode = localStorage.getItem('viewMode') || 'time-cwd'; }catch(e){ viewMode='time-cwd'; }
       var tgl = document.getElementById('onlyTextToggle');
       if (tgl) tgl.checked = onlyText;
-      var tgl2 = document.getElementById('groupByToggle');
-      if (tgl2) tgl2.checked = groupBy;
+      var sel = document.getElementById('viewModeSelect');
+      if (sel) sel.value = viewMode;
       const init = JSON.parse(document.getElementById('init-sessions').textContent);
       renderSessions(init);
     });
@@ -258,8 +308,12 @@ const indexHTML = `<!doctype html>
     </div>
     <div style="flex:1"></div>
     <label class="meta" style="margin-right:8px; display:flex; align-items:center; gap:6px;">
-      <input type="checkbox" id="groupByToggle" onchange="toggleGroupBy(this.checked)">
-      按目录分组
+      视图
+      <select id="viewModeSelect" onchange="setViewMode(this.value)" class="btn" style="padding:4px 6px;">
+        <option value="time-cwd">时间 → 目录</option>
+        <option value="cwd-time">目录 → 时间</option>
+        <option value="flat">扁平</option>
+      </select>
     </label>
     <label class="meta" style="margin-right:8px; display:flex; align-items:center; gap:6px;">
       <input type="checkbox" id="onlyTextToggle" checked onchange="toggleOnlyText(this.checked)">
