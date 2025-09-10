@@ -38,6 +38,7 @@
   --space-6: 16px;
   --space-7: 18px;
   --space-8: 20px;
+  --space-10: 1em; /* for explicit right padding on selects */
 
   --radius-sm: 6px;
   --radius-pill: 9999px;
@@ -88,11 +89,14 @@ pre { padding: var(--space-3); overflow: auto; }
 .stats { color: var(--color-fg); font-size: var(--font-size-stats); }
 .btn { padding: var(--space-3) var(--space-4); border: var(--border-width) solid var(--color-btn-border); border-radius: var(--radius-sm); background: var(--color-btn-bg); cursor: pointer; }
 .btn select, select.btn { border: var(--border-width) solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-btn-bg); }
+/* Explicitly increase only right padding for select with .btn class */
+select.btn { padding-right: var(--space-10); }
+.btn select, select.btn { border: var(--border-width) solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-btn-bg); }
 .back-link { color: var(--color-fg); text-decoration: none; }
 .back-link:hover { text-decoration: underline; }
 .searchbar { display:flex; gap: var(--space-3); align-items:center; padding: var(--space-3) var(--space-4); }
 .searchbar input[type="text"] { flex:1; padding: var(--space-2) var(--space-3); border: var(--border-width) solid #ddd; border-radius: var(--radius-sm); }
-.searchbar select { padding: var(--space-2) var(--space-3); border: var(--border-width) solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-btn-bg); }
+.searchbar select { padding: var(--space-2) var(--space-3); border: var(--border-width) solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-btn-bg); padding-right: var(--space-10); }
 .result-item { padding: var(--space-3) var(--space-8); border-bottom: var(--border-width) solid var(--color-border-subtle); cursor: pointer; }
 .result-item:hover { background: var(--color-item-hover); }
 .group .result-item { padding-left: var(--space-7); }
