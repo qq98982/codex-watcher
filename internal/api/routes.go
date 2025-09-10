@@ -216,16 +216,25 @@ const indexHTML = `<!doctype html>
       const hint = document.getElementById('hiddenHint');
       if (hint) hint.textContent = (onlyText && hidden>0) ? ('隐藏 ' + hidden + ' 个无文本会话') : '';
       const s = document.getElementById('sessions');
+      function parseDateSafe(v){ var d=new Date(v); return isNaN(d)? null : d; }
+      function endAtOf(it){ var a=parseDateSafe(it.last_at), b=parseDateSafe(it.file_mod_at); if(a&&b) return a>b?a:b; return a||b; }
+      function fmtStartCountDur(it){
+        var start = parseDateSafe(it.first_at);
+        var end = endAtOf(it) || start;
+        var count = (onlyText ? (it.text_count||0) : (it.message_count||0));
+        var startStr = start? start.toLocaleString() : '';
+        var durMs = (start && end) ? (end - start) : 0;
+        function human(ms){ if(ms<=0) return '0s'; var s=Math.floor(ms/1000); var d=Math.floor(s/86400); s%=86400; var h=Math.floor(s/3600); s%=3600; var m=Math.floor(s/60); s%=60; var out=[]; if(d) out.push(d+'d'); if(h) out.push(h+'h'); if(m) out.push(m+'m'); if(s && out.length<2) out.push(s+'s'); return out.join(' ')||'0s'; }
+        return startStr + ' · ' + count + ' msgs · ' + human(durMs);
+      }
       if(viewMode === 'flat'){
         s.innerHTML = filtered.map(function(it){
           var pills = Object.keys(it.models||{}).map(function(m){ return '<span class="pill">'+m+'</span>'; }).join('');
           var title = (it.title || it.id);
-          var firstAt = (it.first_at ? new Date(it.first_at).toLocaleString() : '');
-          var lastAt = (it.last_at ? new Date(it.last_at).toLocaleString() : '');
-          var msgCount = (onlyText ? (it.text_count||0) : (it.message_count||0));
+          var meta = fmtStartCountDur(it);
           return '<div class="item" data-id="' + it.id + '" onclick="selectSession(\'' + it.id + '\')">'
             + '<div><strong>' + title + '</strong></div>'
-            + '<div class="meta">' + msgCount + ' msgs • ' + firstAt + ' → ' + lastAt + '</div>'
+            + '<div class="meta">' + meta + '</div>'
             + '<div class="meta">' + pills + '</div>'
             + '</div>';
         }).join('');
@@ -244,12 +253,10 @@ const indexHTML = `<!doctype html>
             sessionsHTML = g.items.map(function(it){
               var pills = Object.keys(it.models||{}).map(function(m){ return '<span class="pill">'+m+'</span>'; }).join('');
               var title2 = (it.title || it.id);
-              var firstAt = (it.first_at ? new Date(it.first_at).toLocaleString() : '');
-              var lastAt = (it.last_at ? new Date(it.last_at).toLocaleString() : '');
-              var msgCount = (onlyText ? (it.text_count||0) : (it.message_count||0));
+              var meta = fmtStartCountDur(it);
               return '<div class="item" data-id="' + it.id + '" onclick="selectSession(\'' + it.id + '\')">'
                 + '<div><strong>' + title2 + '</strong></div>'
-                + '<div class="meta">' + msgCount + ' msgs • ' + firstAt + ' → ' + lastAt + '</div>'
+                + '<div class="meta">' + meta + '</div>'
                 + '<div class="meta">' + pills + '</div>'
                 + '</div>';
             }).join('');
@@ -282,12 +289,10 @@ const indexHTML = `<!doctype html>
                 sessionsHTML = g.items.map(function(it){
                   var pills = Object.keys(it.models||{}).map(function(m){ return '<span class="pill">'+m+'</span>'; }).join('');
                   var title2 = (it.title || it.id);
-                  var firstAt = (it.first_at ? new Date(it.first_at).toLocaleString() : '');
-                  var lastAt = (it.last_at ? new Date(it.last_at).toLocaleString() : '');
-                  var msgCount = (onlyText ? (it.text_count||0) : (it.message_count||0));
+                  var meta = fmtStartCountDur(it);
                   return '<div class="item" data-id="' + it.id + '" onclick="selectSession(\'' + it.id + '\')">'
                     + '<div><strong>' + title2 + '</strong></div>'
-                    + '<div class="meta">' + msgCount + ' msgs • ' + firstAt + ' → ' + lastAt + '</div>'
+                    + '<div class="meta">' + meta + '</div>'
                     + '<div class="meta">' + pills + '</div>'
                     + '</div>';
                 }).join('');

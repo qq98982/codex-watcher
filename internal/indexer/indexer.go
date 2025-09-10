@@ -35,6 +35,7 @@ type Session struct {
     Title        string            `json:"title,omitempty"`
     FirstAt      time.Time         `json:"first_at,omitempty"`
     LastAt       time.Time         `json:"last_at,omitempty"`
+    FileModAt    time.Time         `json:"file_mod_at,omitempty"`
     MessageCount int               `json:"message_count"`
     TextCount    int               `json:"text_count"`
     CWD          string            `json:"cwd,omitempty"`
@@ -126,6 +127,11 @@ func (x *Indexer) scanAll() error {
 }
 
 func (x *Indexer) tailFile(sessionID, path string) error {
+    // stat file to capture mod time
+    var modTime time.Time
+    if fi, err := os.Stat(path); err == nil {
+        modTime = fi.ModTime()
+    }
     f, err := os.Open(path)
     if err != nil {
         return err
@@ -166,6 +172,19 @@ func (x *Indexer) tailFile(sessionID, path string) error {
         }
     } else {
         x.positions[path] = pos + nBytes
+    }
+    // update session file mod time (create session record if needed)
+    if !modTime.IsZero() {
+        x.mu.Lock()
+        s := x.sessions[sessionID]
+        if s == nil {
+            s = &Session{ID: sessionID, Models: map[string]int{}, Roles: map[string]int{}}
+            x.sessions[sessionID] = s
+        }
+        if modTime.After(s.FileModAt) {
+            s.FileModAt = modTime
+        }
+        x.mu.Unlock()
     }
     return nil
 }
