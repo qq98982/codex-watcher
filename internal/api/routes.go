@@ -110,13 +110,15 @@ const indexHTML = `<!doctype html>
       const el = document.getElementById('messages');
       el.innerHTML = data.map(function(m){
         var role = (m.role || (m.raw && m.raw.role) || '').toLowerCase();
-        var rolePillClass = role === 'user' ? 'role-user' : (role === 'assistant' ? 'role-assistant' : 'role-tool');
+        var isReasoning = (m.type === 'reasoning') || (m.raw && m.raw.type === 'reasoning');
+        var rolePillClass = isReasoning ? 'role-assistant' : (role === 'user' ? 'role-user' : (role === 'assistant' ? 'role-assistant' : 'role-tool'));
         var ts = (m.ts ? new Date(m.ts).toLocaleString() : '');
         var model = (m.model ? '<span class="pill">' + m.model + '</span>' : '');
+        var pillLabel = isReasoning ? 'Assistant Thinking' : (role || 'message');
         var html = renderContent(m);
         if (!html || !html.trim()) return '';
         return '<div class="msg">'
-          + '<div class="meta"><span class="pill ' + rolePillClass + '">' + (role || 'message') + '</span> <span>' + ts + '</span> ' + model + '</div>'
+          + '<div class="meta"><span class="pill ' + rolePillClass + '">' + pillLabel + '</span> <span>' + ts + '</span> ' + model + '</div>'
           + '<div class="content">' + html + '</div>'
           + '</div>';
       }).filter(Boolean).join('');
@@ -141,6 +143,20 @@ const indexHTML = `<!doctype html>
           }
           return '';
         }).filter(Boolean).join('\n\n');
+      } else if (m && m.raw && m.raw.summary) {
+        var s = m.raw.summary;
+        if (Array.isArray(s)) {
+          md = s.map(function(part){
+            if (typeof part === 'string') return part;
+            if (part && typeof part === 'object') {
+              if (part.type === 'summary_text' && typeof part.text === 'string') return part.text;
+              if (part.type === 'summary_text' && typeof part.content === 'string') return part.content;
+            }
+            return '';
+          }).filter(Boolean).join('\n\n');
+        } else if (typeof s === 'string') {
+          md = s;
+        }
       } else if (m && m.raw && typeof m.raw.text === 'string') {
         md = m.raw.text;
       } else {
