@@ -341,6 +341,16 @@ func (x *Indexer) Reindex() error {
     return x.scanAll()
 }
 
+// IngestForTest allows tests to inject a raw JSON object as a line for a session.
+// It bypasses file I/O and directly feeds the ingest pipeline with minimal locking.
+func (x *Indexer) IngestForTest(sessionID string, raw map[string]any) {
+    if raw == nil { return }
+    b, _ := json.Marshal(raw)
+    // mimic a file path for line numbers and source
+    path := "/tmp/.codex/sessions/" + sessionID + ".jsonl"
+    x.ingestLine(sessionID, path, string(b))
+}
+
 // Helpers
 
 func stringOr(v any) string {
