@@ -178,6 +178,143 @@ func BuildAttachmentName(sess indexer.Session, format string) string {
     return url.PathEscape(name)
 }
 
+// BuildDirAttachmentName produces a filename for directory exports.
+func BuildDirAttachmentName(cwd string, mode string, format string) string {
+    base := strings.TrimSpace(cwd)
+    if base == "" { base = "export" }
+    // reduce to cwd base component
+    if i := strings.LastIndex(base, "/"); i >= 0 { base = base[i+1:] }
+    ts := time.Now().UTC().Format("20060102_1504")
+    name := fmt.Sprintf("%s__%s__%s.%s", sanitize(base), sanitize(mode), ts, strings.ToLower(format))
+    return url.PathEscape(name)
+}
+
+// WriteByDirFlat writes a flattened export for a single directory (cwd prefix).
+// Modes:
+// - user: array of strings (user texts)
+// - dialog: array of {role,text}
+// - dialog_with_thinking: array of {role,text,type} where type in {message, reasoning}
+// Formats: json, md
+func WriteByDirFlat(w io.Writer, idx *indexer.Indexer, cwdPrefix string, mode string, format string, after, before time.Time) (int, error) {
+    // Gather sessions under cwd prefix
+    sessions := idx.Sessions()
+    sel := make([]indexer.Session, 0)
+    for _, s := range sessions {
+        if cwdPrefix == "" || strings.HasPrefix(s.CWD, cwdPrefix) {
+            sel = append(sel, s)
+        }
+    }
+    // Sort sessions by FirstAt asc (old -> new)
+    sort.SliceStable(sel, func(i, j int) bool {
+        ai := sel[i].FirstAt
+        aj := sel[j].FirstAt
+        if ai.IsZero() && aj.IsZero() { return sel[i].ID < sel[j].ID }
+        if ai.IsZero() { return true }
+        if aj.IsZero() { return false }
+        return ai.Before(aj)
+    })
+
+    // Helper filters
+    inDate := func(ts time.Time) bool {
+        if ts.IsZero() { return true }
+        if !after.IsZero() && ts.Before(after) { return false }
+        if !before.IsZero() && ts.After(before) { return false }
+        return true
+    }
+
+    // Collect flattened result in memory (single pass) for both formats
+    type dialogItem struct {
+        Role string `json:"role"`
+        Text string `json:"text"`
+        Type string `json:"type,omitempty"` // message|reasoning for dialog_with_thinking
+    }
+    userTexts := make([]string, 0, 1024)
+    dialogItems := make([]dialogItem, 0, 2048)
+    includeThinking := strings.ToLower(mode) == "dialog_with_thinking"
+
+    for _, s := range sel {
+        msgs := idx.Messages(s.ID, 0)
+        // Sort messages by ts asc
+        sort.SliceStable(msgs, func(i, j int) bool {
+            ti := msgs[i].Ts
+            tj := msgs[j].Ts
+            if !ti.Equal(tj) { return ti.Before(tj) }
+            if msgs[i].Source != msgs[j].Source { return msgs[i].Source < msgs[j].Source }
+            return msgs[i].LineNo < msgs[j].LineNo
+        })
+        for _, m := range msgs {
+            if !inDate(m.Ts) { continue }
+            typ := strings.ToLower(strings.TrimSpace(m.Type))
+            role := strings.ToLower(strings.TrimSpace(m.Role))
+            text := strings.TrimSpace(m.Content)
+            if text == "" && typ != "reasoning" { continue }
+            switch strings.ToLower(mode) {
+            case "user":
+                if role != "user" { continue }
+                if typ == "function_call" || typ == "function_call_output" || typ == "reasoning" { continue }
+                if text != "" { userTexts = append(userTexts, text) }
+            case "dialog", "dialog_with_thinking":
+                // exclude tools
+                if typ == "function_call" || typ == "function_call_output" { continue }
+                if typ == "reasoning" {
+                    if includeThinking {
+                        if text != "" { dialogItems = append(dialogItems, dialogItem{Role: "assistant", Text: text, Type: "reasoning"}) }
+                    }
+                    continue
+                }
+                // normal message text
+                if role == "user" || role == "assistant" {
+                    if text != "" {
+                        di := dialogItem{Role: role, Text: text}
+                        if includeThinking { di.Type = "message" }
+                        dialogItems = append(dialogItems, di)
+                    }
+                }
+            default:
+                // default to dialog
+                if typ == "function_call" || typ == "function_call_output" || typ == "reasoning" { continue }
+                if role == "user" || role == "assistant" { if text != "" { dialogItems = append(dialogItems, dialogItem{Role: role, Text: text}) } }
+            }
+        }
+    }
+
+    // Emit output
+    switch strings.ToLower(format) {
+    case "json":
+        if strings.ToLower(mode) == "user" {
+            b, err := json.Marshal(userTexts)
+            if err != nil { return 0, err }
+            if _, err := w.Write(b); err != nil { return 0, err }
+            return len(userTexts), nil
+        }
+        b, err := json.Marshal(dialogItems)
+        if err != nil { return 0, err }
+        if _, err := w.Write(b); err != nil { return 0, err }
+        return len(dialogItems), nil
+    case "md":
+        count := 0
+        if strings.ToLower(mode) == "user" {
+            for _, t := range userTexts {
+                if _, err := io.WriteString(w, t+"\n\n"); err != nil { return count, err }
+                count++
+            }
+            return count, nil
+        }
+        // dialog variants
+        for _, it := range dialogItems {
+            head := "USER"
+            if it.Role == "assistant" { head = "ASSISTANT" }
+            if it.Type == "reasoning" { head = "THINKING" }
+            if _, err := io.WriteString(w, "### "+head+"\n\n"); err != nil { return count, err }
+            if _, err := io.WriteString(w, it.Text+"\n\n"); err != nil { return count, err }
+            count++
+        }
+        return count, nil
+    default:
+        return 0, fmt.Errorf("unsupported format: %s", format)
+    }
+}
+
 func sanitize(s string) string {
     if s == "" { return "_" }
     s = strings.TrimSpace(s)
@@ -194,4 +331,3 @@ func shorten(s string, n int) string {
     if n <= 1 { return s[:1] }
     return s[:n-1] + "_"
 }
-

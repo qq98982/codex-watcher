@@ -6,6 +6,7 @@ import (
     "net/http"
     "strconv"
     "strings"
+    "time"
 
     "codex-watcher/internal/indexer"
     "codex-watcher/internal/search"
@@ -133,6 +134,40 @@ func AttachRoutes(mux *http.ServeMux, idx *indexer.Indexer) {
             // No content — easier for clients to detect
             w.Header().Set("X-Export-Empty", "1")
         }
+    })
+
+    // Export: by directory (flattened)
+    mux.HandleFunc("/api/export/by_dir", func(w http.ResponseWriter, r *http.Request) {
+        q := r.URL.Query()
+        cwd := q.Get("cwd")
+        if cwd == "" { writeJSON(w, 400, map[string]any{"error":"missing cwd"}); return }
+        mode := q.Get("mode")
+        if mode == "" { mode = "dialog" }
+        format := q.Get("format")
+        if format == "" { format = "md" }
+        // optional dates
+        var after, before time.Time
+        if s := q.Get("after"); s != "" {
+            if t, err := time.Parse(time.RFC3339, s); err == nil { after = t }
+        }
+        if s := q.Get("before"); s != "" {
+            if t, err := time.Parse(time.RFC3339, s); err == nil { before = t }
+        }
+        // headers
+        switch format {
+        case "json":
+            w.Header().Set("Content-Type", "application/json; charset=utf-8")
+        case "md":
+            w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+        default:
+            writeJSON(w, 400, map[string]any{"error":"unsupported format"}); return
+        }
+        w.Header().Set("X-Content-Type-Options", "nosniff")
+        w.Header().Set("Content-Disposition", "attachment; filename=\""+ exporter.BuildDirAttachmentName(cwd, mode, format) +"\"")
+
+        n, err := exporter.WriteByDirFlat(w, idx, cwd, mode, format, after, before)
+        if err != nil { w.WriteHeader(500); _, _ = w.Write([]byte("export error: "+err.Error())); return }
+        if n == 0 { w.Header().Set("X-Export-Empty", "1") }
     })
 }
 
@@ -420,6 +455,16 @@ const indexHTML = `<!doctype html>
       }
     }
 
+    // Export directory with last-used mode/format
+    function exportDir(cwd){
+      try{
+        var mode = (localStorage.getItem('export:mode')||'dialog');
+        var format = (localStorage.getItem('export:format')||'md');
+        var url = '/api/export/by_dir?cwd=' + encodeURIComponent(cwd) + '&mode=' + encodeURIComponent(mode) + '&format=' + encodeURIComponent(format);
+        window.open(url, '_blank');
+      }catch(e){}
+    }
+
     // Search
     async function runSearch(){
       var q = (document.getElementById('searchInput')||{}).value || '';
@@ -594,7 +639,7 @@ const indexHTML = `<!doctype html>
           }
           var lastAtG = (g.lastAt ? new Date(g.lastAt).toLocaleString() : '');
           return '<div class="group">'
-            + '<div class="item" onclick="toggleGroup(\'' + (key.replace(/'/g,"\'")) + '\')" title="' + (g.cwd||'') + '">' + caret + ' <strong style="font-weight:600">' + titleBase + '</strong><br /> <span class="meta">' + title + '</span><br /> <span class="meta">' + g.items.length + ' sessions • ' + lastAtG + '</span></div>'
+            + '<div class="item" onclick="toggleGroup(\'' + (key.replace(/'/g,"\'")) + '\')" title="' + (g.cwd||'') + '">' + caret + ' <strong style="font-weight:600">' + titleBase + '</strong> <button class="btn" style="float:right" onclick="event.stopPropagation(); exportDir(\''+ (g.cwd||'').replace(/'/g,"\\'") +'\'); return false;">导出该目录</button><br /> <span class="meta">' + title + '</span><br /> <span class="meta">' + g.items.length + ' sessions • ' + lastAtG + '</span></div>'
             + (collapsed ? '' : sessionsHTML)
             + '</div>';
         }).join('');
@@ -630,7 +675,7 @@ const indexHTML = `<!doctype html>
               }
               var lastAtG = (g.lastAt ? new Date(g.lastAt).toLocaleString() : '');
               return '<div class="group">'
-                + '<div class="item" onclick="toggleGroup(\'' + key.replace(/'/g,"\'") + '\')" title="' + (g.cwd||'') + '">' + caret + ' <strong style="font-weight:600">' + titleBase + '</strong><br /> <span class="meta">' + title + '</span><br /> <span class="meta">' + g.items.length + ' sessions • ' + lastAtG + '</span></div>'
+                + '<div class="item" onclick="toggleGroup(\'' + key.replace(/'/g,"\'") + '\')" title="' + (g.cwd||'') + '">' + caret + ' <strong style="font-weight:600">' + titleBase + '</strong> <button class="btn" style="float:right" onclick="event.stopPropagation(); exportDir(\''+ (g.cwd||'').replace(/'/g,"\\'") +'\'); return false;">导出该目录</button><br /> <span class="meta">' + title + '</span><br /> <span class="meta">' + g.items.length + ' sessions • ' + lastAtG + '</span></div>'
                 + (collapsed ? '' : sessionsHTML)
                 + '</div>';
             }).join('');
