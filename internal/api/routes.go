@@ -230,10 +230,8 @@ const indexHTML = `<!doctype html>
       if(viewMode === 'flat'){
         s.innerHTML = filtered.map(function(it){
           var pills = Object.keys(it.models||{}).map(function(m){ return '<span class="pill">'+m+'</span>'; }).join('');
-          var title = (it.title || it.id);
           var meta = fmtStartCountDur(it);
           return '<div class="item" data-id="' + it.id + '" onclick="selectSession(\'' + it.id + '\')">'
-            + '<div><strong>' + title + '</strong></div>'
             + '<div class="meta">' + meta + '</div>'
             + '<div class="meta">' + pills + '</div>'
             + '</div>';
@@ -252,10 +250,8 @@ const indexHTML = `<!doctype html>
           if(!collapsed){
             sessionsHTML = g.items.map(function(it){
               var pills = Object.keys(it.models||{}).map(function(m){ return '<span class="pill">'+m+'</span>'; }).join('');
-              var title2 = (it.title || it.id);
               var meta = fmtStartCountDur(it);
               return '<div class="item" data-id="' + it.id + '" onclick="selectSession(\'' + it.id + '\')">'
-                + '<div><strong>' + title2 + '</strong></div>'
                 + '<div class="meta">' + meta + '</div>'
                 + '<div class="meta">' + pills + '</div>'
                 + '</div>';
@@ -288,10 +284,8 @@ const indexHTML = `<!doctype html>
               if(!collapsed){
                 sessionsHTML = g.items.map(function(it){
                   var pills = Object.keys(it.models||{}).map(function(m){ return '<span class="pill">'+m+'</span>'; }).join('');
-                  var title2 = (it.title || it.id);
                   var meta = fmtStartCountDur(it);
                   return '<div class="item" data-id="' + it.id + '" onclick="selectSession(\'' + it.id + '\')">'
-                    + '<div><strong>' + title2 + '</strong></div>'
                     + '<div class="meta">' + meta + '</div>'
                     + '<div class="meta">' + pills + '</div>'
                     + '</div>';
