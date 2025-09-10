@@ -337,17 +337,14 @@ const indexHTML = `<!doctype html>
     function renderSessions(list){
       sessionsCache = Array.isArray(list) ? list : [];
       const all = sessionsCache;
-      const filtered = onlyText ? all.filter(function(it){ return (it.text_count||0) > 0; }) : all;
-      const hidden = all.length - filtered.length;
-      const hint = document.getElementById('hiddenHint');
-      if (hint) hint.textContent = (onlyText && hidden>0) ? ('隐藏 ' + hidden + ' 个无文本会话') : '';
+      const filtered = all;
       const s = document.getElementById('sessions');
       function parseDateSafe(v){ var d=new Date(v); return isNaN(d)? null : d; }
       function endAtOf(it){ var a=parseDateSafe(it.last_at), b=parseDateSafe(it.file_mod_at); if(a&&b) return a>b?a:b; return a||b; }
       function fmtStartCountDur(it){
         var start = parseDateSafe(it.first_at);
         var end = endAtOf(it) || start;
-        var count = (onlyText ? (it.text_count||0) : (it.message_count||0));
+        var count = (it.message_count||0);
         var startStr = start? start.toLocaleString() : '';
         var durMs = (start && end) ? (end - start) : 0;
         function human(ms){ if(ms<=0) return '0s'; var s=Math.floor(ms/1000); var d=Math.floor(s/86400); s%=86400; var h=Math.floor(s/3600); s%=3600; var m=Math.floor(s/60); s%=60; var out=[]; if(d) out.push(d+'d'); if(h) out.push(h+'h'); if(m) out.push(m+'m'); if(s && out.length<2) out.push(s+'s'); return out.join(' ')||'0s'; }
@@ -434,11 +431,8 @@ const indexHTML = `<!doctype html>
       }
     }
     window.addEventListener('load', ()=>{
-      onlyText = false;
       try{ viewMode = localStorage.getItem('viewMode') || 'time-cwd'; }catch(e){ viewMode='time-cwd'; }
       try{ collapseTools = (localStorage.getItem('collapseTools')||'1')==='1'; }catch(e){ collapseTools=true; }
-      var tgl = document.getElementById('onlyTextToggle');
-      if (tgl) tgl.checked = onlyText;
       var sel = document.getElementById('viewModeSelect');
       if (sel) sel.value = viewMode;
       var ct = document.getElementById('collapseToolsToggle');
@@ -458,7 +452,7 @@ const indexHTML = `<!doctype html>
     </div>
     <div style="flex:1"></div>
     <label class="meta" style="margin-right:8px; display:flex; align-items:center; gap:6px;">
-      视图
+      View
       <select id="viewModeSelect" onchange="setViewMode(this.value)" class="btn" style="padding:4px 6px;">
         <option value="time-cwd">时间 → 目录</option>
         <option value="cwd-time">目录 → 时间</option>
@@ -467,13 +461,9 @@ const indexHTML = `<!doctype html>
     </label>
     <label class="meta" style="margin-right:8px; display:flex; align-items:center; gap:6px;">
       <input type="checkbox" id="collapseToolsToggle" checked onchange="toggleCollapseTools(this.checked)">
-      折叠工具
+      Collapse Tools
     </label>
-    <label class="meta" style="margin-right:8px; display:flex; align-items:center; gap:6px;">
-      <input type="checkbox" id="onlyTextToggle" checked onchange="toggleOnlyText(this.checked)">
-      仅文本
-    </label>
-    <div id="hiddenHint" class="meta" style="margin-right:12px;"></div>
+    
     <button class="btn" onclick="refreshSessions()">Refresh</button>
     <form method="post" action="/api/reindex" onsubmit="event.preventDefault(); fetch('/api/reindex',{method:'POST'}).then(()=>refreshSessions())">
       <button class="btn" type="submit">Reindex</button>
