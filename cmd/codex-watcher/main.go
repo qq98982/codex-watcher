@@ -114,6 +114,8 @@ func runServer(cfg config) {
 
     // HTTP server
     mux := http.NewServeMux()
+    // Serve static assets from ./static at /static/
+    mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
     api.AttachRoutes(mux, idx)
 
     srv := &http.Server{

@@ -1,0 +1,55 @@
+/* Step 1: skeleton with tokens and basic utilities (no visual overrides) */
+
+/* Design tokens */
+:root {
+  --color-bg: #ffffff;
+  --color-fg: #333333;
+  --color-muted: #666666;
+  --color-border: #eeeeee;
+  --color-item-hover: #fafafa;
+  --color-code-bg: #f7f7f7;
+  --color-btn-bg: #ffffff;
+  --color-btn-border: #cccccc;
+  --color-pill-bg: #efefef;
+  --color-pill-user-bg: #e0f2fe;
+  --color-pill-assistant-bg: #e9d5ff;
+  --color-pill-tool-bg: #ffe4e6;
+  --color-focus-flash: #fff7c2;
+
+  --font-sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-size-base: 16px;
+  --font-size-meta: 12px;
+  --font-size-pill: 12px;
+  --font-size-stats: 14px;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+
+  --space-1: 4px;
+  --space-2: 6px;
+  --space-3: 8px;
+  --space-4: 10px;
+  --space-5: 12px;
+  --space-6: 16px;
+  --space-7: 18px;
+
+  --radius-sm: 6px;
+  --radius-pill: 9999px;
+  --border-width: 1px;
+  --sidebar-width: 340px;
+  --search-max-width: 680px;
+}
+
+/* Utilities only (used in later steps) */
+.hidden { display: none; }
+.clickable { cursor: pointer; }
+.mono { font-family: var(--font-mono); }
+.ellipsis { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mt-1 { margin-top: var(--space-2); }
+.ml-1 { margin-left: var(--space-2); }
+.flex-1 { flex: 1; }
+.fw-600 { font-weight: var(--font-weight-semibold); }
+.fw-700 { font-weight: var(--font-weight-bold); }
+.pad-xs { padding: 4px 6px; }
+.pad-sm { padding: var(--space-3) var(--space-4); }
+
