@@ -259,7 +259,7 @@ const indexHTML = `<!doctype html>
           }
           var lastAtG = (g.lastAt ? new Date(g.lastAt).toLocaleString() : '');
           return '<div class="group">'
-            + '<div class="item" onclick="toggleGroup(\'' + (key.replace(/'/g,"\'")) + '\')" title="' + (g.cwd||'') + '">' + caret + ' <strong style="font-weight:600">' + titleBase + '</strong><br /> <span class="meta">' + title + '</span> <span class="meta">(' + g.items.length + ' sessions • ' + lastAtG + ')</span></div>'
+            + '<div class="item" onclick="toggleGroup(\'' + (key.replace(/'/g,"\'")) + '\')" title="' + (g.cwd||'') + '">' + caret + ' <strong style="font-weight:600">' + titleBase + '</strong><br /> <span class="meta">' + title + '</span><br /> <span class="meta">' + g.items.length + ' sessions • ' + lastAtG + '</span></div>'
             + (collapsed ? '' : sessionsHTML)
             + '</div>';
         }).join('');
@@ -293,7 +293,7 @@ const indexHTML = `<!doctype html>
               }
               var lastAtG = (g.lastAt ? new Date(g.lastAt).toLocaleString() : '');
               return '<div class="group">'
-                + '<div class="item" onclick="toggleGroup(\'' + key.replace(/'/g,"\'") + '\')" title="' + (g.cwd||'') + '">' + caret + ' <strong style="font-weight:600">' + titleBase + '</strong><br /> <span class="meta">' + title + '</span> <span class="meta">(' + g.items.length + ' sessions • ' + lastAtG + ')</span></div>'
+                + '<div class="item" onclick="toggleGroup(\'' + key.replace(/'/g,"\'") + '\')" title="' + (g.cwd||'') + '">' + caret + ' <strong style="font-weight:600">' + titleBase + '</strong><br /> <span class="meta">' + title + '</span><br /> <span class="meta">' + g.items.length + ' sessions • ' + lastAtG + '</span></div>'
                 + (collapsed ? '' : sessionsHTML)
                 + '</div>';
             }).join('');
