@@ -104,6 +104,26 @@ const indexHTML = `<!doctype html>
   <script src="https://unpkg.com/dompurify@3.1.7/dist/purify.min.js"></script>
   <script src="https://unpkg.com/@highlightjs/cdn-assets@11.9.0/highlight.min.js"></script>
   <script>
+    // Helpers: shell quoting and output toggles
+    function shQuote(arg){
+      if (arg == null) return '';
+      arg = String(arg);
+      if (/^[A-Za-z0-9_@%+=:,./-]+$/.test(arg)) return arg; // safe unquoted
+      // single-quote, escape single quotes by closing/opening
+      return "'" + arg.replace(/'/g, "'\\''") + "'";
+    }
+    function shJoin(arr){ try{ return (arr||[]).map(shQuote).join(' ');}catch(e){ return ''} }
+    function toggleOutput(id){
+      var t = document.getElementById(id+':trunc');
+      var f = document.getElementById(id+':full');
+      var b = document.getElementById(id+':btn');
+      if (!t || !f) return;
+      var isTruncShown = t.style.display !== 'none';
+      t.style.display = isTruncShown ? 'none' : '';
+      f.style.display = isTruncShown ? '' : 'none';
+      if (b) b.textContent = isTruncShown ? 'Show less' : 'Show full';
+      try { hljs.highlightAll(); } catch(e) {}
+    }
     async function selectSession(id) {
       const res = await fetch('/api/messages?session_id=' + encodeURIComponent(id) + '&limit=500');
       const data = await res.json();
@@ -134,6 +154,7 @@ const indexHTML = `<!doctype html>
 
     function renderContent(m){
       var md = '';
+      var htmlBuilt = '';
       if (m && typeof m.content === 'string' && m.content.trim() !== '') {
         md = m.content;
       } else if (m && m.raw && m.raw.content && Array.isArray(m.raw.content)) {
@@ -154,10 +175,10 @@ const indexHTML = `<!doctype html>
         else if (args && typeof args === 'object') { obj = args; }
         var cmdLine = '';
         if (obj && Array.isArray(obj.command)) {
-          try { cmdLine = obj.command.join(' '); } catch(e) {}
+          try { cmdLine = shJoin(obj.command); } catch(e) {}
         }
         if (cmdLine) {
-          md = '**' + (name || 'tool') + ' command**\n\n~~~bash\n' + cmdLine + '\n~~~';
+          md = '**' + (name || 'tool') + ' command**\n\n~~~bash\n$ ' + cmdLine + '\n~~~';
         } else {
           md = '**' + (name || 'tool') + ' arguments**\n\n~~~json\n' + tryString(obj || args || m.raw) + '\n~~~';
         }
@@ -165,16 +186,32 @@ const indexHTML = `<!doctype html>
         // Render function output; try to unwrap nested JSON with { output: "..." }
         var out = (m.raw && m.raw.output);
         var textOut = '';
+        var stderrOut = '';
         if (typeof out === 'string') {
-          try { var parsed = JSON.parse(out); if (parsed && typeof parsed.output === 'string') textOut = parsed.output; } catch(e) { /* keep raw */ }
+          try { var parsed = JSON.parse(out); if (parsed) { if (typeof parsed.output === 'string') textOut = parsed.output; if (typeof parsed.stderr === 'string') stderrOut = parsed.stderr; } } catch(e) { /* keep raw */ }
           if (!textOut) textOut = out;
         } else if (out && typeof out === 'object') {
-          if (typeof out.output === 'string') textOut = out.output; else textOut = tryString(out);
+          if (typeof out.output === 'string') textOut = out.output;
+          if (typeof out.stderr === 'string') stderrOut = out.stderr;
+          if (!textOut && !stderrOut) textOut = tryString(out);
         }
-        // Truncate very large outputs; show first 5000 chars
         var MAX = 5000;
-        if (textOut && textOut.length > MAX) { textOut = textOut.slice(0, MAX) + '\n... (truncated)'; }
-        md = '**output**\n\n~~~text\n' + (textOut || '') + '\n~~~';
+        var id = 'out-' + (m.id || Math.random().toString(36).slice(2));
+        function section(label, body){
+          if (!body) return '';
+          var full = body;
+          var trunc = body.length>MAX ? body.slice(0,MAX) + '\n... (truncated)' : body;
+          if (full.length>MAX) {
+            return '<div><div class="meta"><strong>' + label + '</strong> · <button id="'+id+':btn" class="btn" onclick="toggleOutput(\''+id+'\')">Show full</button></div>'
+              + '<pre id="'+id+':trunc" style="margin-top:6px; white-space:pre; overflow:auto;">' + escapeHTML(trunc) + '</pre>'
+              + '<pre id="'+id+':full" style="display:none; margin-top:6px; white-space:pre; overflow:auto;">' + escapeHTML(full) + '</pre>'
+              + '</div>';
+          }
+          return '<div><div class="meta"><strong>' + label + '</strong></div>'
+            + '<pre style="margin-top:6px; white-space:pre; overflow:auto;">' + escapeHTML(full) + '</pre>'
+            + '</div>';
+        }
+        htmlBuilt = section('stdout', textOut) + (stderrOut? section('stderr', stderrOut) : '');
       } else if (m && m.raw && m.raw.summary) {
         var s = m.raw.summary;
         if (Array.isArray(s)) {
@@ -194,6 +231,7 @@ const indexHTML = `<!doctype html>
       } else {
         return '';
       }
+      if (htmlBuilt) { return DOMPurify.sanitize(htmlBuilt); }
       try { return DOMPurify.sanitize(marked.parse(md)); } catch(e) { return escapeHTML(md); }
     }
 
