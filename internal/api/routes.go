@@ -184,37 +184,6 @@ const indexHTML = `<!doctype html>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Codex Watcher</title>
   <link rel="stylesheet" href="/static/css/app.css">
-  <style>
-    body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, "Apple Color Emoji", "Segoe UI Emoji"; margin: 0; }
-    header { padding: 10px 16px; border-bottom: 1px solid #eee; display: flex; gap: 16px; align-items: center; }
-    .container { display: grid; grid-template-columns: 340px 1fr; height: calc(100vh - 52px); }
-    .sidebar { border-right: 1px solid #eee; overflow: auto; }
-    .content { overflow: auto; }
-    .item { padding: 10px 12px; border-bottom: 1px solid #f3f3f3; cursor: pointer; }
-    .item:hover { background: #fafafa; }
-    .meta { color: #666; font-size: 12px; }
-    .msg { padding: 10px 12px; border-bottom: 1px solid #f3f3f3; }
-    .role { font-weight: 600; margin-right: 8px; }
-    code, pre { background: #f7f7f7; }
-    pre { padding: 8px; overflow: auto; }
-    .row { display: flex; gap: 16px; align-items: baseline; }
-    .pill { font-size: 12px; background: #efefef; border-radius: 9999px; padding: 2px 8px; margin-right: 6px; }
-    .pill.role-user { background: #e0f2fe; text-transform: uppercase; font-weight: bold; }
-    .pill.role-assistant { background: #e9d5ff; text-transform: uppercase; font-weight: bold; }
-    .pill.role-tool { background: #ffe4e6; }
-    .stats { color: #333; font-size: 14px; }
-    .btn { padding: 6px 10px; border: 1px solid #ccc; border-radius: 6px; background: #fff; cursor: pointer; }
-    .back-link { color: #333; text-decoration: none; }
-    .back-link:hover { text-decoration: underline; }
-    .searchbar { display:flex; gap:8px; align-items:center; padding:8px 10px; }
-    .searchbar input[type="text"] { flex:1; padding:6px 8px; border:1px solid #ddd; border-radius:6px; }
-    .searchbar select { padding:6px 8px; border:1px solid #ddd; border-radius:6px; }
-    .result-item { padding: 8px 10px; border-bottom: 1px solid #f3f3f3; cursor: pointer; }
-    .result-item:hover { background: #fafafa; }
-    .group .result-item { padding-left: 18px; }
-    .msg.focus { animation: focusFlash 2s ease 1; }
-    @keyframes focusFlash { 0% { background:#fff7c2; } 100% { background:transparent; } }
-  </style>
   <link rel="stylesheet" href="https://unpkg.com/@highlightjs/cdn-assets@11.9.0/styles/github.min.css">
   <script src="https://unpkg.com/htmx.org@1.9.12"></script>
   <script src="https://unpkg.com/marked@12.0.2/marked.min.js"></script>
