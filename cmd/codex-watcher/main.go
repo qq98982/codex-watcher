@@ -227,6 +227,10 @@ func cmdRestart(cfg config) error {
 
 func cmdBrowse(cfg config) error {
     url := "http://localhost:" + cfg.Port
+    // Ensure server is running; if not, start and wait briefly
+    if err := ensureServerRunning(cfg); err != nil {
+        return err
+    }
     // macOS 'open', Linux 'xdg-open'
     if p, _ := exec.LookPath("open"); p != "" {
         return exec.Command(p, url).Start()
@@ -236,6 +240,37 @@ func cmdBrowse(cfg config) error {
     }
     log.Printf("Open %s in your browser", url)
     return nil
+}
+
+// ensureServerRunning checks if the HTTP endpoint responds; if not, it starts
+// the server and waits up to a few seconds for it to become ready.
+func ensureServerRunning(cfg config) error {
+    statsURL := "http://localhost:" + cfg.Port + "/api/stats"
+    if httpOK(statsURL, 300*time.Millisecond) {
+        return nil
+    }
+    if err := cmdStart(cfg); err != nil {
+        return err
+    }
+    // Poll until ready or timeout
+    deadline := time.Now().Add(5 * time.Second)
+    for time.Now().Before(deadline) {
+        if httpOK(statsURL, 300*time.Millisecond) {
+            return nil
+        }
+        time.Sleep(200 * time.Millisecond)
+    }
+    return errors.New("server did not become ready in time")
+}
+
+func httpOK(url string, timeout time.Duration) bool {
+    client := &http.Client{Timeout: timeout}
+    resp, err := client.Get(url)
+    if err != nil {
+        return false
+    }
+    defer resp.Body.Close()
+    return resp.StatusCode >= 200 && resp.StatusCode < 300
 }
 
 func withLogging(next http.Handler) http.Handler {

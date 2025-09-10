@@ -3,7 +3,7 @@ BIN := $(BIN_DIR)/codex-watcher
 PORT ?= 7077
 CODEX_DIR ?= $(HOME)/.codex
 
-.PHONY: all build test vet check run start stop restart reload status open health clean
+.PHONY: all build test vet check run start stop restart reload status browse open health clean
 
 all: build
 
@@ -45,15 +45,12 @@ status:
 # One-shot: stop -> build -> start
 reload: stop build start
 
-# Open UI in default browser (macOS 'open', Linux 'xdg-open')
-open:
-	@if command -v open >/dev/null 2>&1; then \
-		open http://localhost:$(PORT); \
-	elif command -v xdg-open >/dev/null 2>&1; then \
-		xdg-open http://localhost:$(PORT); \
-	else \
-		echo "Open http://localhost:$(PORT) in your browser"; \
-	fi
+# Ensure server is running, then open browser
+browse: build
+	$(BIN) browse --port $(PORT) --codex $(CODEX_DIR)
+
+# Back-compat alias
+open: browse
 
 # Quick health check
 health:

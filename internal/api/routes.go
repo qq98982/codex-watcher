@@ -316,6 +316,8 @@ const indexHTML = `<!doctype html>
             try { node.scrollIntoView({behavior:'smooth', block:'center'}); } catch(e) { node.scrollIntoView(); }
             node.classList.add('focus');
             setTimeout(function(){ try{ node.classList.remove('focus'); }catch(e){} }, 2200);
+            // Highlight query tokens inside the focused message content
+            try { var contentEl = node.querySelector('.content'); if (contentEl && lastSearch && lastSearch.q) { highlightInElement(contentEl, lastSearch.q); } } catch(e) {}
           }
           window.pendingFocus = null;
         }
@@ -514,6 +516,28 @@ const indexHTML = `<!doctype html>
       return out.slice(0,5);
     }
     function hiSnippet(s, q){ if(!s) return ''; var toks = tokensFromQuery(q); var out=escapeHTML(s); try{ for(var i=0;i<toks.length;i++){ var t=toks[i]; var rx=new RegExp(t.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),'ig'); out=out.replace(rx, function(m){return '<mark>'+m+'</mark>';}); } }catch(e){} return out; }
+    function highlightInElement(root, q){
+      try{
+        if(!root) return; var toks = tokensFromQuery(q); if(!toks || toks.length===0) return;
+        function inCode(n){ for(var p=n; p; p=p.parentNode){ if(!p.tagName) continue; var tn=p.tagName.toUpperCase(); if(tn==='CODE' || tn==='PRE') return true; } return false; }
+        var pattern = '(' + toks.map(function(t){ return t.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'); }).join('|') + ')';
+        var rx = new RegExp(pattern, 'ig');
+        var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, { acceptNode: function(node){ if(!node.nodeValue || !node.nodeValue.trim()) return NodeFilter.FILTER_REJECT; if(inCode(node)) return NodeFilter.FILTER_REJECT; return NodeFilter.FILTER_ACCEPT; } });
+        var nodes=[]; while(walker.nextNode()){ nodes.push(walker.currentNode); }
+        for(var i=0;i<nodes.length;i++){
+          var text = nodes[i].nodeValue; if(!rx.test(text)) continue; rx.lastIndex=0;
+          var frag = document.createDocumentFragment();
+          var lastIndex = 0; var m;
+          while((m = rx.exec(text))){
+            var pre = text.slice(lastIndex, m.index); if(pre) frag.appendChild(document.createTextNode(pre));
+            var mark = document.createElement('mark'); mark.textContent = m[0]; frag.appendChild(mark);
+            lastIndex = m.index + m[0].length; if(rx.lastIndex === m.index) rx.lastIndex++;
+          }
+          var tail = text.slice(lastIndex); if(tail) frag.appendChild(document.createTextNode(tail));
+          nodes[i].parentNode.replaceChild(frag, nodes[i]);
+        }
+      }catch(e){}
+    }
     function renderSearchResults(res, q){
       showSearchView();
       var el = document.getElementById('search-results'); if(!el) return;
@@ -532,12 +556,12 @@ const indexHTML = `<!doctype html>
         var startAt = startTimeForSession(group.sid);
         html += '<div class="group">' + '<div class="item" onclick="toggleGroup(\'' + key.replace(/'/g,"\'") + '\')"><strong>' + escapeHTML(nameForSession(group.sid)) + '</strong> <span class="meta">(' + group.hits.length + ')</span> ' + caret + (startAt ? ('<br /><span class="meta">' + startAt + '</span>') : '') + '</div>';
         if (!collapsed){
-          for (var j=0;j<group.hits.length;j++){
-            var h = group.hits[j]; var pill = (h.type && h.type!=='') ? ('<span class="pill">'+h.type+'</span>') : (h.role? ('<span class="pill">'+h.role+'</span>') : '<span class="pill">message</span>');
-            var field = h.field || 'content'; var snippet = hiSnippet(h.content||'', q); var when = (h.ts ? new Date(h.ts).toLocaleString() : '');
-            var anchor = (h.message_id && String(h.message_id).trim() !== '') ? String(h.message_id) : ('L'+(h.line_no||0));
-            html += '<div class="result-item" onclick="openHit(\''+group.sid+'\', \''+anchor.replace(/'/g,"\\'")+'\', '+(h.line_no||0)+')">' + '<div class="meta">' + pill + ' <span class="pill">' + field + '</span> <span class="meta">' + when + '</span></div>' + '<div>' + (snippet? snippet : '<span class="meta">(no preview)</span>') + '</div>' + '</div>';
-          }
+        for (var j=0;j<group.hits.length;j++){
+          var h = group.hits[j]; var pill = (h.type && h.type!=='') ? ('<span class="pill">'+h.type+'</span>') : (h.role? ('<span class="pill">'+h.role+'</span>') : '<span class="pill">message</span>');
+          var field = h.field || 'content'; var snippet = hiSnippet(h.content||'', q);
+          var anchor = (h.message_id && String(h.message_id).trim() !== '') ? String(h.message_id) : ('L'+(h.line_no||0));
+          html += '<div class="result-item" onclick="openHit(\''+group.sid+'\', \''+anchor.replace(/'/g,"\\'")+'\', '+(h.line_no||0)+')">' + '<div class="meta">' + pill + ' <span class="pill">' + field + '</span></div>' + '<div>' + (snippet? snippet : '<span class="meta">(no preview)</span>') + '</div>' + '</div>';
+        }
         }
         html += '</div>';
       }
@@ -696,6 +720,12 @@ const indexHTML = `<!doctype html>
       const init = JSON.parse(document.getElementById('init-sessions').textContent);
       sessionsCache = Array.isArray(init) ? init : [];
       renderSessions(sessionsCache);
+      // On first load, if nothing is selected, open the most recent session
+      try {
+        if (!currentSessionId && Array.isArray(sessionsCache) && sessionsCache.length>0) {
+          selectSession(sessionsCache[0].id);
+        }
+      } catch(e){}
     });
   </script>
   <script type="application/json" id="init-sessions">{{ toJSON .Sessions }}</script>
