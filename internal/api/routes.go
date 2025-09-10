@@ -114,6 +114,14 @@ const indexHTML = `<!doctype html>
     .pill.role-tool { background: #ffe4e6; }
     .stats { color: #333; font-size: 14px; }
     .btn { padding: 6px 10px; border: 1px solid #ccc; border-radius: 6px; background: #fff; cursor: pointer; }
+    .searchbar { display:flex; gap:8px; align-items:center; padding:8px 10px; }
+    .searchbar input[type="text"] { flex:1; padding:6px 8px; border:1px solid #ddd; border-radius:6px; }
+    .searchbar select { padding:6px 8px; border:1px solid #ddd; border-radius:6px; }
+    .result-item { padding: 8px 10px; border-bottom: 1px solid #f3f3f3; cursor: pointer; }
+    .result-item:hover { background: #fafafa; }
+    .group .result-item { padding-left: 18px; }
+    .msg.focus { animation: focusFlash 2s ease 1; }
+    @keyframes focusFlash { 0% { background:#fff7c2; } 100% { background:transparent; } }
   </style>
   <link rel="stylesheet" href="https://unpkg.com/@highlightjs/cdn-assets@11.9.0/styles/github.min.css">
   <script src="https://unpkg.com/htmx.org@1.9.12"></script>
@@ -194,7 +202,8 @@ const indexHTML = `<!doctype html>
           var sym = collapseTools ? '▸' : '▾';
           arrow = ' <span id="'+id2+':arrow" class="pill" style="cursor:pointer" onclick="toggleTool(\''+id2+'\')">' + sym + '</span>';
         }
-        return '<div class="msg">'
+        var anchorId = (m.id && String(m.id).trim() !== '') ? ('msg-' + m.id) : ('msg-L' + (m.line_no || 0));
+        return '<div class="msg" id="' + anchorId + '">'
           + '<div class="meta"><span class="pill ' + rolePillClass + '">' + pillLabel + '</span>' + arrow + ' ' + model + '</div>'
           + '<div class="content">' + html + '</div>'
           + '</div>';
@@ -203,6 +212,20 @@ const indexHTML = `<!doctype html>
         el.innerHTML = '<div class="meta" style="padding:12px;color:#666;">此会话没有可显示的文本</div>';
       }
       try { hljs.highlightAll(); } catch(e) {}
+      // scroll to a pending focus target if requested
+      try {
+        if (window.pendingFocus && window.pendingFocus.sessionId === id) {
+          var tmp = window.pendingFocus;
+          var anchor = tmp.messageId ? ('msg-' + tmp.messageId) : ('msg-L' + (tmp.lineNo||0));
+          var node = document.getElementById(anchor);
+          if (node) {
+            try { node.scrollIntoView({behavior:'smooth', block:'center'}); } catch(e) { node.scrollIntoView(); }
+            node.classList.add('focus');
+            setTimeout(function(){ try{ node.classList.remove('focus'); }catch(e){} }, 2200);
+          }
+          window.pendingFocus = null;
+        }
+      } catch(e) {}
     }
 
     function tryString(v){ if(typeof v==='string') return v; try{ return JSON.stringify(v, null, 2)}catch(e){return ''}}
@@ -294,12 +317,14 @@ const indexHTML = `<!doctype html>
     let viewMode = 'time-cwd'; // 'cwd-time' | 'time-cwd' | 'flat'
     let collapseTools = true;
     let sessionsCache = [];
+    window.pendingFocus = null; // { sessionId, messageId, lineNo }
     function setViewMode(v){ viewMode = v; try{ localStorage.setItem('viewMode', viewMode); }catch(e){} renderSessions(sessionsCache); if (currentSessionId) selectSession(currentSessionId); }
     function toggleCollapseTools(v){ collapseTools = !!v; try{ localStorage.setItem('collapseTools', collapseTools?'1':'0'); }catch(e){} if (currentSessionId) selectSession(currentSessionId); }
 
     function getCollapsed(key){ try{ return (localStorage.getItem('collapsed:'+key)||'0')==='1'; }catch(e){ return false; } }
     function setCollapsed(key, val){ try{ localStorage.setItem('collapsed:'+key, val?'1':'0'); }catch(e){} }
     function isBucketKey(key){ return key && key.indexOf('bucket:')===0 && key.indexOf(':cwd:')===-1 }
+    let lastSearch = {res:null, q:''};
     function toggleGroup(key){
       if (isBucketKey(key)) {
         // Accordion behavior for buckets: open this one, close others
@@ -311,7 +336,93 @@ const indexHTML = `<!doctype html>
       } else {
         setCollapsed(key, !getCollapsed(key));
       }
-      renderSessions(sessionsCache);
+      if (String(key||'').indexOf('search:')===0) {
+        if (lastSearch && lastSearch.res) { renderSearchResults(lastSearch.res, lastSearch.q||''); }
+      } else {
+        renderSessions(sessionsCache);
+      }
+    }
+
+    // Search
+    async function runSearch(){
+      var q = (document.getElementById('searchInput')||{}).value || '';
+      var scope = (document.getElementById('searchScope')||{}).value || 'content';
+      q = (q||'').trim();
+      if (!q) { return clearSearch(); }
+      var url = '/api/search?q=' + encodeURIComponent(q) + '&in=' + encodeURIComponent(scope) + '&limit=200';
+      const res = await fetch(url);
+      const data = await res.json();
+      lastSearch = {res: data, q: q};
+      renderSearchResults(data, q);
+    }
+    function clearSearch(){
+      try{ document.getElementById('searchInput').value=''; }catch(e){}
+      showSessionsList();
+      var el = document.getElementById('search-results'); if (el) el.innerHTML='';
+    }
+    function showSearchView(){
+      var sr = document.getElementById('search-results');
+      var sc = document.getElementById('sidebar-controls');
+      var sl = document.getElementById('sessions');
+      if (sr) sr.style.display = '';
+      if (sc) sc.style.display = 'none';
+      if (sl) sl.style.display = 'none';
+    }
+    function showSessionsList(){
+      var sr = document.getElementById('search-results');
+      var sc = document.getElementById('sidebar-controls');
+      var sl = document.getElementById('sessions');
+      if (sr) sr.style.display = 'none';
+      if (sc) sc.style.display = '';
+      if (sl) sl.style.display = '';
+    }
+    function tokensFromQuery(q){
+      if(!q) return [];
+      var arr = q.split(/\s+/).filter(Boolean);
+      var out = [];
+      for (var i=0;i<arr.length;i++){
+        var t = arr[i];
+        if (!t) continue;
+        if (t === 'OR') continue;
+        if (t[0] === '-') t = t.slice(1);
+        if (t.indexOf(':')>0) continue; // field
+        if (t[0] === '"' && t[t.length-1]==='"') t = t.slice(1,-1);
+        if (t[0] === '/' && t.lastIndexOf('/')>0) continue; // regex: skip naive highlight
+        t = t.replace(/\*/g,'');
+        if (t) out.push(t);
+      }
+      return out.slice(0,5);
+    }
+    function hiSnippet(s, q){ if(!s) return ''; var toks = tokensFromQuery(q); var out=escapeHTML(s); try{ for(var i=0;i<toks.length;i++){ var t=toks[i]; var rx=new RegExp(t.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),'ig'); out=out.replace(rx, function(m){return '<mark>'+m+'</mark>';}); } }catch(e){} return out; }
+    function renderSearchResults(res, q){
+      showSearchView();
+      var el = document.getElementById('search-results'); if(!el) return;
+      if (!res || !Array.isArray(res.hits) || res.hits.length===0) { el.innerHTML = '<div class="meta" style="padding:8px 10px;">No results</div>'; return; }
+      var bySession = {};
+      for (var i=0;i<res.hits.length;i++){ var h=res.hits[i]; var sid=h.session_id; if(!bySession[sid]) bySession[sid]=[]; bySession[sid].push(h); }
+      var groups = Object.keys(bySession).map(function(sid){ var hits=bySession[sid]; hits.sort(function(a,b){ var ta=(a.ts?Date.parse(a.ts):0), tb=(b.ts?Date.parse(b.ts):0); if(ta!==tb) return tb-ta; return (a.line_no||0)-(b.line_no||0); }); return {sid:sid, hits:hits}; });
+      groups.sort(function(a,b){ var ta=(a.hits[0]&&a.hits[0].ts?Date.parse(a.hits[0].ts):0), tb=(b.hits[0]&&b.hits[0].ts?Date.parse(b.hits[0].ts):0); return tb-ta; });
+      var sessMap = {}; try{ (sessionsCache||[]).forEach(function(s){ sessMap[s.id]=s; }); }catch(e){}
+      function nameForSession(id){ var s=sessMap[id]; if(!s) return id; var base = (s.cwd_base||''); return (base? (base+': '):'') + (s.title||id); }
+      var html = '<div class="meta" style="padding:8px 10px;">Found ' + (res.total||0) + ' in ' + (res.took_ms||0) + ' ms' + (res.truncated? ' (truncated)':'' ) + '</div>';
+      for (var g=0; g<groups.length; g++){
+        var group = groups[g]; var key = 'search:session:'+group.sid; var collapsed = getCollapsed(key); var caret = collapsed ? '▸' : '▾';
+        html += '<div class="group">' + '<div class="item" onclick="toggleGroup(\'' + key.replace(/'/g,"\'") + '\')"><strong>' + escapeHTML(nameForSession(group.sid)) + '</strong> <span class="meta">(' + group.hits.length + ')</span> ' + caret + '</div>';
+        if (!collapsed){
+          for (var j=0;j<group.hits.length;j++){
+            var h = group.hits[j]; var pill = (h.type && h.type!=='') ? ('<span class="pill">'+h.type+'</span>') : (h.role? ('<span class="pill">'+h.role+'</span>') : '<span class="pill">message</span>');
+            var field = h.field || 'content'; var snippet = hiSnippet(h.content||'', q); var when = (h.ts ? new Date(h.ts).toLocaleString() : '');
+            var anchor = (h.message_id && String(h.message_id).trim() !== '') ? String(h.message_id) : ('L'+(h.line_no||0));
+            html += '<div class="result-item" onclick="openHit(\''+group.sid+'\', \''+anchor.replace(/'/g,"\\'")+'\', '+(h.line_no||0)+')">' + '<div class="meta">' + pill + ' <span class="pill">' + field + '</span> <span class="meta">' + when + '</span></div>' + '<div>' + (snippet? snippet : '<span class="meta">(no preview)</span>') + '</div>' + '</div>';
+          }
+        }
+        html += '</div>';
+      }
+      el.innerHTML = html;
+    }
+    function openHit(sessionId, anchor, lineNo){
+      window.pendingFocus = { sessionId: sessionId, messageId: (anchor && anchor[0] !== 'L') ? anchor : '', lineNo: lineNo };
+      selectSession(sessionId);
     }
 
     function formatPath(p){ if(!p) return '(Unknown)';
@@ -463,7 +574,8 @@ const indexHTML = `<!doctype html>
       var ct = document.getElementById('collapseToolsToggle');
       if (ct) ct.checked = collapseTools;
       const init = JSON.parse(document.getElementById('init-sessions').textContent);
-      renderSessions(init);
+      sessionsCache = Array.isArray(init) ? init : [];
+      renderSessions(sessionsCache);
     });
   </script>
   <script type="application/json" id="init-sessions">{{ toJSON .Sessions }}</script>
@@ -480,11 +592,20 @@ const indexHTML = `<!doctype html>
       <input type="checkbox" id="collapseToolsToggle" checked onchange="toggleCollapseTools(this.checked)">
       Collapse Tools
     </label>
-    
-    
+    <div class="searchbar" style="max-width:680px;">
+      <input id="searchInput" type="text" placeholder="Search across sessions… (quotes, -exclude, OR, fields, /re/flags)" onkeydown="if(event.key==='Enter'){runSearch()}" />
+      <select id="searchScope" title="Scope">
+        <option value="content">Content</option>
+        <option value="tools">Tools</option>
+        <option value="all">All</option>
+      </select>
+      <button class="btn" onclick="runSearch()">Search</button>
+      <button class="btn" onclick="clearSearch()">Clear</button>
+    </div>
   </header>
   <div class="container">
     <div class="sidebar">
+      <div id="search-results" style="display:none"></div>
       <div id="sidebar-controls" class="meta" style="padding:8px 10px; border-bottom:1px solid #eee; display:flex; align-items:center; gap:8px;">
         <span>View</span>
         <select id="viewModeSelect" onchange="setViewMode(this.value)" class="btn" style="padding:4px 6px;">
