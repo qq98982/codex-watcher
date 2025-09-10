@@ -8,7 +8,7 @@
   --color-border: #eeeeee;
   --color-item-hover: #fafafa;
   /* Page background (very light gray) */
-  --color-bg-page: #f9fafb;
+  --color-bg-page: #f2f2f2;
   --color-code-bg: #f7f7f7;
   --color-btn-bg: #ffffff;
   --color-btn-border: #cccccc;
@@ -44,6 +44,8 @@
   --border-width: 1px;
   --sidebar-width: 340px;
   --search-max-width: 680px;
+  /* Native select arrow spacing */
+  --select-arrow-gap: 1ch;
 }
 
 /* Utilities only (used in later steps) */
@@ -86,11 +88,12 @@ pre { padding: var(--space-3); overflow: auto; }
 .pill.role-tool { background: var(--color-pill-tool-bg); }
 .stats { color: var(--color-fg); font-size: var(--font-size-stats); }
 .btn { padding: var(--space-3) var(--space-4); border: var(--border-width) solid var(--color-btn-border); border-radius: var(--radius-sm); background: var(--color-btn-bg); cursor: pointer; }
+.btn select, select.btn { padding-right: calc(var(--space-4) + var(--select-arrow-gap)); }
 .back-link { color: var(--color-fg); text-decoration: none; }
 .back-link:hover { text-decoration: underline; }
 .searchbar { display:flex; gap: var(--space-3); align-items:center; padding: var(--space-3) var(--space-4); }
 .searchbar input[type="text"] { flex:1; padding: var(--space-2) var(--space-3); border: var(--border-width) solid #ddd; border-radius: var(--radius-sm); }
-.searchbar select { padding: var(--space-2) var(--space-3); border: var(--border-width) solid #ddd; border-radius: var(--radius-sm); }
+.searchbar select { padding: var(--space-2) var(--space-3); padding-right: calc(var(--space-3) + var(--select-arrow-gap)); border: var(--border-width) solid #ddd; border-radius: var(--radius-sm); }
 .result-item { padding: var(--space-3) var(--space-8); border-bottom: var(--border-width) solid var(--color-border-subtle); cursor: pointer; }
 .result-item:hover { background: var(--color-item-hover); }
 .group .result-item { padding-left: var(--space-7); }
