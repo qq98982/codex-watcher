@@ -332,6 +332,9 @@ const indexHTML = `<!doctype html>
       return buckets;
     }
     async function refreshSessions(){ const r=await fetch('/api/sessions'); const data = await r.json(); renderSessions(data) }
+    // Auto-refresh sessions list periodically and on tab focus
+    setInterval(()=>{ refreshSessions().catch(()=>{}) }, 10000);
+    document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) refreshSessions() });
     function renderSessions(list){
       sessionsCache = Array.isArray(list) ? list : [];
       const all = sessionsCache;
@@ -348,6 +351,7 @@ const indexHTML = `<!doctype html>
         function human(ms){ if(ms<=0) return '0s'; var s=Math.floor(ms/1000); var d=Math.floor(s/86400); s%=86400; var h=Math.floor(s/3600); s%=3600; var m=Math.floor(s/60); s%=60; var out=[]; if(d) out.push(d+'d'); if(h) out.push(h+'h'); if(m) out.push(m+'m'); if(s && out.length<2) out.push(s+'s'); return out.join(' ')||'0s'; }
         return startStr + ' · ' + count + ' msgs · ' + human(durMs);
       }
+      function hasSession(list, id){ if(!id) return false; for(var i=0;i<list.length;i++){ if(list[i].id===id) return true } return false }
       if(viewMode === 'flat'){
         s.innerHTML = filtered.map(function(it){
           var pills = Object.keys(it.models||{}).map(function(m){ return '<span class="pill">'+m+'</span>'; }).join('');
@@ -357,8 +361,10 @@ const indexHTML = `<!doctype html>
             + '<div class="meta">' + pills + '</div>'
             + '</div>';
         }).join('');
-        var first = s.querySelector('.item');
-        if (first && first.dataset && first.dataset.id) { selectSession(first.dataset.id); }
+        if (!currentSessionId || !hasSession(filtered, currentSessionId)) {
+          var first = s.querySelector('.item');
+          if (first && first.dataset && first.dataset.id) { selectSession(first.dataset.id); }
+        }
       } else if (viewMode === 'cwd-time') {
         var groups = groupByCWD(filtered);
         s.innerHTML = groups.map(function(g){
@@ -384,8 +390,10 @@ const indexHTML = `<!doctype html>
             + (collapsed ? '' : sessionsHTML)
             + '</div>';
         }).join('');
-        var first2 = s.querySelector('.group .item[data-id]');
-        if (first2 && first2.dataset && first2.dataset.id) { selectSession(first2.dataset.id); }
+        if (!currentSessionId || !hasSession(filtered, currentSessionId)) {
+          var first2 = s.querySelector('.group .item[data-id]');
+          if (first2 && first2.dataset && first2.dataset.id) { selectSession(first2.dataset.id); }
+        }
       } else if (viewMode === 'time-cwd') {
         var buckets = bucketizeByTime(filtered);
         s.innerHTML = buckets.map(function(b){
@@ -424,8 +432,10 @@ const indexHTML = `<!doctype html>
             + (bCollapsed ? '' : inner)
             + '</div>';
         }).join('');
-        var first3 = s.querySelector('.group .item[data-id]');
-        if (first3 && first3.dataset && first3.dataset.id) { selectSession(first3.dataset.id); }
+        if (!currentSessionId || !hasSession(filtered, currentSessionId)) {
+          var first3 = s.querySelector('.group .item[data-id]');
+          if (first3 && first3.dataset && first3.dataset.id) { selectSession(first3.dataset.id); }
+        }
       }
     }
     window.addEventListener('load', ()=>{
@@ -454,10 +464,7 @@ const indexHTML = `<!doctype html>
       Collapse Tools
     </label>
     
-    <button class="btn" onclick="refreshSessions()">Refresh</button>
-    <form method="post" action="/api/reindex" onsubmit="event.preventDefault(); fetch('/api/reindex',{method:'POST'}).then(()=>refreshSessions())">
-      <button class="btn" type="submit">Reindex</button>
-    </form>
+    
   </header>
   <div class="container">
     <div class="sidebar">
