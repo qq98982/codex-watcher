@@ -418,6 +418,7 @@ const indexHTML = `<!doctype html>
     function getCollapsed(key){ try{ return (localStorage.getItem('collapsed:'+key)||'1')==='1'; }catch(e){ return true; } }
     function setCollapsed(key, val){ try{ localStorage.setItem('collapsed:'+key, val?'1':'0'); }catch(e){} }
     function isBucketKey(key){ return key && key.indexOf('bucket:')===0 && key.indexOf(':cwd:')===-1 }
+    function isCwdKey(key){ return key && (key.indexOf('cwd:')===0 || key.indexOf(':cwd:')>0) }
     let lastSearch = {res:null, q:''};
     function toggleGroup(key){
       if (isBucketKey(key)) {
@@ -426,6 +427,21 @@ const indexHTML = `<!doctype html>
         for (var i=0;i<all.length;i++){
           var k = 'bucket:'+all[i];
           setCollapsed(k, k!==key); // collapse all except current
+        }
+      } else if (isCwdKey(key)) {
+        var willOpen = getCollapsed(key); // currently collapsed? then will open
+        setCollapsed(key, !getCollapsed(key));
+        if (willOpen) {
+          // Collapse all other CWD groups (accordion behavior)
+          try {
+            for (var i=0;i<localStorage.length;i++){
+              var lk = localStorage.key(i);
+              if (!lk || lk.indexOf('collapsed:')!==0) continue;
+              var target = lk.slice('collapsed:'.length);
+              if (target === key) continue;
+              if (isCwdKey(target)) setCollapsed(target, true);
+            }
+          } catch(e){}
         }
       } else {
         setCollapsed(key, !getCollapsed(key));
