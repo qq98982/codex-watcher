@@ -141,6 +141,7 @@ const indexHTML = `<!doctype html>
     }
     function shJoin(arr){ try{ return (arr||[]).map(shQuote).join(' ');}catch(e){ return ''} }
     function truncate(s, n){ s=(s||'').toString(); if(s.length<=n) return s; return s.slice(0, Math.max(0,n-1)) + '…'; }
+    function oneLine(s){ try{ return String(s||'').replace(/\s+/g,' ').trim(); }catch(e){ return ''} }
     function toggleOutput(id){
       var t = document.getElementById(id+':trunc');
       var f = document.getElementById(id+':full');
@@ -195,7 +196,7 @@ const indexHTML = `<!doctype html>
             else if (out && typeof out === 'object') { if (typeof out.output==='string') textOut=out.output; if(typeof out.stderr==='string') stderrOut=out.stderr; }
             var parts=[]; if (textOut) parts.push('stdout'); if (stderrOut) parts.push('stderr'); summary = parts.length? ('output: ' + parts.join(', ')) : 'output';
           }
-          var collapsedDiv = '<div id="'+id2+':collapsed" class="meta" style="font-family:ui-monospace, SFMono-Regular, Menlo, monospace;' + (collapseTools? '' : 'display:none;') + '"><p style="margin:6px 0 0">' + escapeHTML(truncate(summary, 160)) + '</p></div>';
+          var collapsedDiv = '<div id="'+id2+':collapsed" class="meta" style="font-family:ui-monospace, SFMono-Regular, Menlo, monospace;' + (collapseTools? '' : 'display:none;') + '"><p style="margin:6px 0 0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' + escapeHTML(truncate(oneLine(summary), 140)) + '</p></div>';
           var expandedDiv = '<div id="'+id2+':expanded" ' + (collapseTools? 'style=\"display:none;\"' : '') + '>' + html + '</div>';
           html = collapsedDiv + expandedDiv;
         }
