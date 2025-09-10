@@ -184,7 +184,13 @@ const indexHTML = `<!doctype html>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Codex Watcher</title>
   <link rel="stylesheet" href="/static/css/app.css">
+  <!-- Prefer local vendor if present; CDN as fallback -->
+  <link rel="stylesheet" href="/static/vendor/hljs-github.min.css">
   <link rel="stylesheet" href="https://unpkg.com/@highlightjs/cdn-assets@11.9.0/styles/github.min.css">
+  <script src="/static/vendor/htmx.min.js"></script>
+  <script src="/static/vendor/marked.min.js"></script>
+  <script src="/static/vendor/purify.min.js"></script>
+  <script src="/static/vendor/highlight.min.js"></script>
   <script src="https://unpkg.com/htmx.org@1.9.12"></script>
   <script src="https://unpkg.com/marked@12.0.2/marked.min.js"></script>
   <script src="https://unpkg.com/dompurify@3.1.7/dist/purify.min.js"></script>
