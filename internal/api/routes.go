@@ -709,12 +709,12 @@ const indexHTML = `<!doctype html>
     </div>
     <div class="flex-1"></div>
     <div class="searchbar searchbar--max">
-      <input id="searchInput" type="text" placeholder="Search across sessions… (quotes, -exclude, OR, fields, /re/flags)" onkeydown="if(event.key==='Enter'){runSearch()}" />
       <select id="searchScope" title="Scope">
         <option value="content">Content</option>
         <option value="tools">Tools</option>
         <option value="all">All</option>
       </select>
+      <input id="searchInput" type="text" placeholder="Search across sessions… (quotes, -exclude, OR, fields, /re/flags)" onkeydown="if(event.key==='Enter'){runSearch()}" />
       <button class="btn" onclick="runSearch()">Search</button>
     </div>
   </header>
