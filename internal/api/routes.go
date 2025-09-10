@@ -274,11 +274,9 @@ const indexHTML = `<!doctype html>
     }
 
     function escapeHTML(s){ return (s||'').toString().replace(/[&<>"']/g, function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c]||c;}) }
-    let onlyText = false;
     let viewMode = 'time-cwd'; // 'cwd-time' | 'time-cwd' | 'flat'
     let collapseTools = true;
     let sessionsCache = [];
-    function toggleOnlyText(v){ onlyText = !!v; renderSessions(sessionsCache); }
     function setViewMode(v){ viewMode = v; try{ localStorage.setItem('viewMode', viewMode); }catch(e){} renderSessions(sessionsCache); if (currentSessionId) selectSession(currentSessionId); }
     function toggleCollapseTools(v){ collapseTools = !!v; try{ localStorage.setItem('collapseTools', collapseTools?'1':'0'); }catch(e){} if (currentSessionId) selectSession(currentSessionId); }
 
@@ -452,14 +450,6 @@ const indexHTML = `<!doctype html>
     </div>
     <div style="flex:1"></div>
     <label class="meta" style="margin-right:8px; display:flex; align-items:center; gap:6px;">
-      View
-      <select id="viewModeSelect" onchange="setViewMode(this.value)" class="btn" style="padding:4px 6px;">
-        <option value="time-cwd">Time → Dir</option>
-        <option value="cwd-time">Dir → Time</option>
-        <option value="flat">All by Time</option>
-      </select>
-    </label>
-    <label class="meta" style="margin-right:8px; display:flex; align-items:center; gap:6px;">
       <input type="checkbox" id="collapseToolsToggle" checked onchange="toggleCollapseTools(this.checked)">
       Collapse Tools
     </label>
@@ -470,7 +460,17 @@ const indexHTML = `<!doctype html>
     </form>
   </header>
   <div class="container">
-    <div class="sidebar" id="sessions"></div>
+    <div class="sidebar">
+      <div id="sidebar-controls" class="meta" style="padding:8px 10px; border-bottom:1px solid #eee; display:flex; align-items:center; gap:8px;">
+        <span>View</span>
+        <select id="viewModeSelect" onchange="setViewMode(this.value)" class="btn" style="padding:4px 6px;">
+          <option value="time-cwd">Time → Dir</option>
+          <option value="cwd-time">Dir → Time</option>
+          <option value="flat">All by Time</option>
+        </select>
+      </div>
+      <div id="sessions"></div>
+    </div>
     <div class="content" id="messages"></div>
   </div>
 </body>
