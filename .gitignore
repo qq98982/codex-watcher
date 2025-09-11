@@ -30,3 +30,4 @@ dist/
 /.gocache/
 /.gomodcache/
 *.log
+AGENTS.md

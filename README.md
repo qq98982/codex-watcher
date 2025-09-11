@@ -1,19 +1,23 @@
-Codex Watcher (Local Background Service)
+# Codex Watcher (Local Background Service)
 
-Overview
+## Overview
 
 - Watches `~/.codex` for changes to `sessions/*.jsonl`.
 - Parses JSONL chat events and exposes a local HTTP API + a minimal UI.
 - Default port: `localhost:7077` (configurable via `PORT`).
 - Default Codex dir: `$HOME/.codex` (override with `CODEX_DIR`).
 
-Notes
+## Screenshot
+
+![Codex Watcher UI](screenshot.png)
+
+## Notes
 
 - This initial version uses polling (no external deps) to detect file appends.
 - It incrementally tails JSONL files and indexes messages in-memory.
 - Unknown/extra JSON fields are preserved in a `raw` blob for later analysis.
 
-Build
+## Build
 
 Prerequisites
 - Go 1.21+
@@ -31,7 +35,7 @@ GOOS=darwin GOARCH=arm64  go build -o bin/codex-watcher-darwin-arm64  ./cmd/code
 GOOS=linux  GOARCH=amd64  go build -o bin/codex-watcher-linux-amd64  ./cmd/codex-watcher
 ```
 
-Install (macOS, Apple Silicon)
+## Install (macOS, Apple Silicon)
 
 Option A — script (recommended)
 
@@ -57,7 +61,7 @@ SH
 sudo chmod +x /opt/homebrew/bin/codex-watcher
 ```
 
-Uninstall (macOS)
+## Uninstall (macOS)
 
 ```bash
 bash scripts/uninstall-macos.sh
@@ -76,7 +80,7 @@ HOST=0.0.0.0 go run ./cmd/codex-watcher --host 0.0.0.0
 go run ./cmd/codex-watcher --search_budget_ms 500 --search_max 300
 ```
 
-Usage
+## Usage
 
 ```text
 codex-watcher [flags]
@@ -109,7 +113,7 @@ Notes
 - The default host is `0.0.0.0` (listens on all interfaces). If you prefer local-only, run with `--host 127.0.0.1`.
 ```
 
-API
+### API
 
 - `GET /api/sessions` — list discovered sessions with basic stats.
 - `GET /api/messages?session_id=...` — messages for a session (latest 200 by default).
@@ -122,7 +126,7 @@ Export parameters (selected)
 - `GET /api/export/by_dir?cwd=...&after=RFC3339&before=RFC3339&exclude_shell=0|1&exclude_tool_outputs=0|1` (markdown)
   - Defaults: exclude_shell=1, exclude_tool_outputs=1
 
-UI
+### UI
 
 - `GET /` — Minimal HTMX-based view listing sessions and messages.
 - Designed to work without Node tooling or bundlers.
