@@ -206,8 +206,13 @@ func cmdStart(cfg config) error {
     if cfg.CodexDir != "" { args = append(args, "--codex", cfg.CodexDir) }
     if cfg.Host != "" { args = append(args, "--host", cfg.Host) }
     cmd := exec.Command(exe, args...)
-    cmd.Stdout = os.Stdout
-    cmd.Stderr = os.Stderr
+    // Run child in background without logging to current console
+    if devnull, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0); err == nil {
+        // Close in parent after start; child keeps its own fd
+        defer devnull.Close()
+        cmd.Stdout = devnull
+        cmd.Stderr = devnull
+    }
     // detach from parent session/process group
     cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
     if err := cmd.Start(); err != nil { return err }

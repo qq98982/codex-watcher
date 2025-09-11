@@ -2,7 +2,7 @@ Codex Watcher (Local Background Service)
 
 Overview
 
-- Watches `~/.codex` for changes to `history.jsonl` and `sessions/*.jsonl`.
+- Watches `~/.codex` for changes to `sessions/*.jsonl`.
 - Parses JSONL chat events and exposes a local HTTP API + a minimal UI.
 - Default port: `localhost:7077` (configurable via `PORT`).
 - Default Codex dir: `$HOME/.codex` (override with `CODEX_DIR`).
@@ -12,6 +12,56 @@ Notes
 - This initial version uses polling (no external deps) to detect file appends.
 - It incrementally tails JSONL files and indexes messages in-memory.
 - Unknown/extra JSON fields are preserved in a `raw` blob for later analysis.
+
+Build
+
+Prerequisites
+- Go 1.21+
+
+From source (current repo)
+
+```bash
+# build to ./bin/
+make build
+# or
+go build -o bin/codex-watcher ./cmd/codex-watcher
+
+# cross-compile examples
+GOOS=darwin GOARCH=arm64  go build -o bin/codex-watcher-darwin-arm64  ./cmd/codex-watcher
+GOOS=linux  GOARCH=amd64  go build -o bin/codex-watcher-linux-amd64  ./cmd/codex-watcher
+```
+
+Install (macOS, Apple Silicon)
+
+Option A — script (recommended)
+
+```bash
+bash scripts/install-macos.sh
+# Installs to /opt/codex-watcher and places a wrapper in /opt/homebrew/bin (or /usr/local/bin)
+```
+
+Option B — manual
+
+```bash
+sudo mkdir -p /opt/codex-watcher
+go build -o bin/codex-watcher ./cmd/codex-watcher
+sudo cp bin/codex-watcher /opt/codex-watcher/
+sudo rsync -a static/ /opt/codex-watcher/static/
+
+# Add a small wrapper so WorkingDirectory is correct (static/ must be found)
+sudo tee /opt/homebrew/bin/codex-watcher >/dev/null <<'SH'
+#!/usr/bin/env sh
+set -e
+cd /opt/codex-watcher && exec ./codex-watcher "$@"
+SH
+sudo chmod +x /opt/homebrew/bin/codex-watcher
+```
+
+Uninstall (macOS)
+
+```bash
+bash scripts/uninstall-macos.sh
+```
 
 Run
 
@@ -85,7 +135,6 @@ Data Model (flexible)
 
 Assumptions About ~/.codex Structure
 
-- `~/.codex/history.jsonl` — global linear log of events/messages.
 - `~/.codex/sessions/*.jsonl` — per-session logs. Each line is a JSON object.
 - If the real schema differs, the parser is resilient and stores the full `raw` JSON.
 
