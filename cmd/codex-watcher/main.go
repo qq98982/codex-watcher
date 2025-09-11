@@ -39,7 +39,7 @@ func resolveConfig() (config, error) {
     var (
         portFlag  = flag.String("port", "", "port to listen on")
         dirFlag   = flag.String("codex", "", "path to ~/.codex directory")
-        hostFlag  = flag.String("host", "", "host interface to bind (default 127.0.0.1)")
+        hostFlag  = flag.String("host", "", "host interface to bind (default 0.0.0.0)")
         searchBudget = flag.Int("search_budget_ms", 0, "soft time budget for search (ms, default 350)")
         searchMax    = flag.Int("search_max", 0, "max hits returned (default 200)")
         showUsage = flag.Bool("h", false, "show help")
@@ -52,7 +52,7 @@ func resolveConfig() (config, error) {
     cfg := config{
         Port:     getenv("PORT", "7077"),
         CodexDir: getenv("CODEX_DIR", filepath.Join(os.Getenv("HOME"), ".codex")),
-        Host:     getenv("HOST", "127.0.0.1"),
+        Host:     getenv("HOST", "0.0.0.0"),
     }
     if *portFlag != "" {
         cfg.Port = *portFlag
@@ -72,7 +72,7 @@ func resolveConfig() (config, error) {
 }
 
 func main() {
-    // Subcommand routing: start|stop|restart|browse|serve (internal) or default serve
+    // Subcommand routing: start|stop|restart|status|browse|serve (internal) or default serve
     if len(os.Args) > 1 {
         switch os.Args[1] {
         case "start":
@@ -89,6 +89,11 @@ func main() {
             cfg, err := resolveConfig()
             if err != nil { log.Fatal(err) }
             if err := cmdRestart(cfg); err != nil { log.Fatal(err) }
+            return
+        case "status":
+            cfg, err := resolveConfig()
+            if err != nil { log.Fatal(err) }
+            if err := cmdStatus(cfg); err != nil { log.Fatal(err) }
             return
         case "browse":
             cfg, err := resolveConfig()
@@ -199,6 +204,7 @@ func cmdStart(cfg config) error {
     args := []string{"serve"}
     if cfg.Port != "" { args = append(args, "--port", cfg.Port) }
     if cfg.CodexDir != "" { args = append(args, "--codex", cfg.CodexDir) }
+    if cfg.Host != "" { args = append(args, "--host", cfg.Host) }
     cmd := exec.Command(exe, args...)
     cmd.Stdout = os.Stdout
     cmd.Stderr = os.Stderr
@@ -236,6 +242,39 @@ func cmdStop(cfg config) error {
 func cmdRestart(cfg config) error {
     _ = cmdStop(cfg)
     return cmdStart(cfg)
+}
+
+func cmdStatus(cfg config) error {
+    pid, err := readPIDFile(cfg)
+    if err != nil {
+        log.Println("not running (no pid file)")
+        return nil
+    }
+    if !isAlive(pid) {
+        log.Printf("not running (stale pid file with pid %d)", pid)
+        _ = removePIDFile(cfg)
+        return nil
+    }
+    // Try to fetch stats for extra context
+    host := cfg.Host
+    if host == "" || host == "0.0.0.0" || host == ":" { host = "127.0.0.1" }
+    url := "http://" + host + ":" + cfg.Port + "/api/stats"
+    client := &http.Client{Timeout: 400 * time.Millisecond}
+    type stats struct{
+        TotalMessages int `json:"total_messages"`
+        TotalSessions int `json:"total_sessions"`
+    }
+    var st stats
+    if resp, err := client.Get(url); err == nil {
+        _ = json.NewDecoder(resp.Body).Decode(&st)
+        resp.Body.Close()
+    }
+    if st.TotalSessions > 0 || st.TotalMessages > 0 {
+        log.Printf("running (pid %d) on http://%s:%s — sessions=%d messages=%d", pid, cfg.Host, cfg.Port, st.TotalSessions, st.TotalMessages)
+    } else {
+        log.Printf("running (pid %d) on http://%s:%s", pid, cfg.Host, cfg.Port)
+    }
+    return nil
 }
 
 func cmdBrowse(cfg config) error {

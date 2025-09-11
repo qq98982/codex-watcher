@@ -26,6 +26,39 @@ HOST=0.0.0.0 go run ./cmd/codex-watcher --host 0.0.0.0
 go run ./cmd/codex-watcher --search_budget_ms 500 --search_max 300
 ```
 
+Usage
+
+```text
+codex-watcher [flags]
+codex-watcher serve [flags]           # same as default
+codex-watcher browse [flags]          # ensure running, then open browser
+codex-watcher start|stop|restart [flags]
+
+Flags (with env var equivalents)
+  --host <host>               Bind address (default 0.0.0.0)
+    env: HOST
+  --port <port>               HTTP port (default 7077)
+    env: PORT
+  --codex <dir>               Path to ~/.codex (default $HOME/.codex)
+    env: CODEX_DIR
+  --search_budget_ms <ms>     Soft time budget for /api/search (default 350)
+  --search_max <n>            Maximum hits returned (default 200)
+
+Examples
+  # foreground
+  codex-watcher --host 0.0.0.0 --port 7077 --codex "$HOME/.codex"
+
+  # background service (simple)
+  codex-watcher start --host 0.0.0.0 --port 7077 --codex "$HOME/.codex"
+  codex-watcher browse   # open UI
+  codex-watcher stop
+  codex-watcher status
+  
+Notes
+- The binary serves static files from a local `static/` folder; run from the repo root or keep `static/` adjacent to the binary when deploying (e.g., `/opt/codex-watcher/{codex-watcher,static/}`).
+- The default host is `0.0.0.0` (listens on all interfaces). If you prefer local-only, run with `--host 127.0.0.1`.
+```
+
 API
 
 - `GET /api/sessions` — list discovered sessions with basic stats.
