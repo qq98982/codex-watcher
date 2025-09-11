@@ -89,16 +89,11 @@ pre { padding: var(--space-3); overflow: auto; }
 .stats { color: var(--color-fg); font-size: var(--font-size-stats); }
 .btn { padding: var(--space-3) var(--space-4); border: var(--border-width) solid var(--color-btn-border); border-radius: var(--radius-sm); background: var(--color-btn-bg); cursor: pointer; }
 .btn select, select.btn { border: var(--border-width) solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-btn-bg); }
-/* Explicitly increase only right padding for select with .btn class */
-select.btn { padding-right: var(--space-10); }
-.btn select, select.btn { border: var(--border-width) solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-btn-bg); }
 .back-link { color: var(--color-fg); text-decoration: none; }
 .back-link:hover { text-decoration: underline; }
 .searchbar { display:flex; gap: var(--space-3); align-items:center; padding: var(--space-3) var(--space-4); }
 .searchbar input[type="text"] { flex:1; padding: var(--space-3) var(--space-4); border: var(--border-width) solid #ddd; border-radius: var(--radius-sm); }
-/* (removed top search scope select; keeping rule commented for reference)
-   .searchbar select { padding: var(--space-2) var(--space-3); border: var(--border-width) solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-btn-bg); }
-*/
+
 /* On focus, match border to page background to avoid dark ring */
 .searchbar input[type="text"]:focus,
 .searchbar input[type="text"]:focus-visible,
