@@ -26,7 +26,7 @@ func buildIdxForExport(t *testing.T) *indexer.Indexer {
 func TestWriteSession_ExcludesShellAndOutputs(t *testing.T) {
     idx := buildIdxForExport(t)
     var buf bytes.Buffer
-    n, err := WriteSession(&buf, idx, "s1", "json", Filters{})
+    n, err := WriteSession(&buf, idx, "s1", "json", Filters{ExcludeShellCalls: true, ExcludeToolOutputs: true})
     if err != nil { t.Fatalf("WriteSession error: %v", err) }
     out := buf.String()
     if strings.Contains(out, "function_call_output") || strings.Contains(out, "\"function_call\"") {
@@ -38,7 +38,7 @@ func TestWriteSession_ExcludesShellAndOutputs(t *testing.T) {
 func TestWriteByDirAllMarkdown_ExcludesShellAndOutputs(t *testing.T) {
     idx := buildIdxForExport(t)
     var buf bytes.Buffer
-    n, err := WriteByDirAllMarkdown(&buf, idx, "", time.Time{}, time.Time{})
+    n, err := WriteByDirAllMarkdown(&buf, idx, "", time.Time{}, time.Time{}, Filters{ExcludeShellCalls: true, ExcludeToolOutputs: true})
     if err != nil { t.Fatalf("WriteByDirAllMarkdown error: %v", err) }
     s := buf.String()
     if strings.Contains(s, "TOOLS OUTPUT") || strings.Contains(s, "### TOOLS\n\n") {

@@ -91,6 +91,15 @@ func AttachRoutes(mux *http.ServeMux, idx *indexer.Indexer) {
         if format == "" { format = "md" }
         // filters
         var f exporter.Filters
+        // policy toggles (default exclude)
+        f.ExcludeShellCalls = true
+        f.ExcludeToolOutputs = true
+        if s := strings.TrimSpace(q.Get("exclude_shell")); s != "" {
+            if s == "0" || strings.EqualFold(s, "false") { f.ExcludeShellCalls = false }
+        }
+        if s := strings.TrimSpace(q.Get("exclude_tool_outputs")); s != "" {
+            if s == "0" || strings.EqualFold(s, "false") { f.ExcludeToolOutputs = false }
+        }
         if v := q.Get("text_only"); v != "" {
             if v == "1" || v == "true" { f.TextOnly = true }
         }
@@ -149,12 +158,22 @@ func AttachRoutes(mux *http.ServeMux, idx *indexer.Indexer) {
         if s := q.Get("before"); s != "" {
             if t, err := time.Parse(time.RFC3339, s); err == nil { before = t }
         }
+        // policy toggles (default exclude)
+        var ef exporter.Filters
+        ef.ExcludeShellCalls = true
+        ef.ExcludeToolOutputs = true
+        if s := strings.TrimSpace(q.Get("exclude_shell")); s != "" {
+            if s == "0" || strings.EqualFold(s, "false") { ef.ExcludeShellCalls = false }
+        }
+        if s := strings.TrimSpace(q.Get("exclude_tool_outputs")); s != "" {
+            if s == "0" || strings.EqualFold(s, "false") { ef.ExcludeToolOutputs = false }
+        }
         // headers — always markdown
         w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
         w.Header().Set("X-Content-Type-Options", "nosniff")
         w.Header().Set("Content-Disposition", "attachment; filename=\""+ exporter.BuildDirAttachmentName(cwd, "all_md", "md") +"\"")
 
-        n, err := exporter.WriteByDirAllMarkdown(w, idx, cwd, after, before)
+        n, err := exporter.WriteByDirAllMarkdown(w, idx, cwd, after, before, ef)
         if err != nil { w.WriteHeader(500); _, _ = w.Write([]byte("export error: "+err.Error())); return }
         if n == 0 { w.Header().Set("X-Export-Empty", "1") }
     })

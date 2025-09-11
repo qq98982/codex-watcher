@@ -20,6 +20,9 @@ type Filters struct {
     After        time.Time
     Before       time.Time
     MaxMessages  int // 0 = all
+    // Export policy toggles
+    ExcludeShellCalls    bool // drop Tool: shell invocations
+    ExcludeToolOutputs   bool // drop all function_call_output
 }
 
 // WriteSession writes a single session export to w in the given format.
@@ -71,10 +74,10 @@ func WriteSession(w io.Writer, idx *indexer.Indexer, sessionID string, format st
         if !inDate(m.Ts) { continue }
         if !allowedRole(m.Role) { continue }
         if !allowedType(m.Type) { continue }
-        // Export policy: always exclude tool outputs; and exclude Tool: shell invocations
+        // Export policy controlled by filters
         typ := strings.ToLower(strings.TrimSpace(m.Type))
-        if typ == "function_call_output" { continue }
-        if typ == "function_call" {
+        if f.ExcludeToolOutputs && typ == "function_call_output" { continue }
+        if f.ExcludeShellCalls && typ == "function_call" {
             tool := strings.ToLower(strings.TrimSpace(m.ToolName))
             if tool == "" {
                 if n, ok := m.Raw["name"].(string); ok { tool = strings.ToLower(strings.TrimSpace(n)) }
@@ -328,7 +331,7 @@ func WriteByDirFlat(w io.Writer, idx *indexer.Indexer, cwdPrefix string, mode st
 // WriteByDirAllMarkdown writes a markdown transcript for all messages (USER, TOOLS,
 // ASSISTANT THINKING, ASSISTANT) under a cwd prefix, sessions ordered by FirstAt asc,
 // messages ordered by timestamp asc.
-func WriteByDirAllMarkdown(w io.Writer, idx *indexer.Indexer, cwdPrefix string, after, before time.Time) (int, error) {
+func WriteByDirAllMarkdown(w io.Writer, idx *indexer.Indexer, cwdPrefix string, after, before time.Time, f Filters) (int, error) {
     sessions := idx.Sessions()
     sel := make([]indexer.Session, 0)
     for _, s := range sessions {
@@ -375,9 +378,9 @@ func WriteByDirAllMarkdown(w io.Writer, idx *indexer.Indexer, cwdPrefix string, 
             typ := strings.ToLower(strings.TrimSpace(m.Type))
             role := strings.ToLower(strings.TrimSpace(m.Role))
             text := strings.TrimSpace(m.Content)
-            // Exclude tool outputs; exclude Tool: shell invocations
-            if typ == "function_call_output" { continue }
-            if typ == "function_call" {
+            // Export policy controlled by filters
+            if f.ExcludeToolOutputs && typ == "function_call_output" { continue }
+            if f.ExcludeShellCalls && typ == "function_call" {
                 tool := strings.ToLower(strings.TrimSpace(m.ToolName))
                 if tool == "" {
                     if n, ok := m.Raw["name"].(string); ok { tool = strings.ToLower(strings.TrimSpace(n)) }
