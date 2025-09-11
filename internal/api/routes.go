@@ -243,14 +243,116 @@ const indexHTML = `<!doctype html>
       if (a) a.textContent = isCollapsedShown ? '▾' : '▸';
       try { hljs.highlightAll(); } catch(e) {}
     }
+    // Clipboard helpers and per-session message cache
+    async function copyToClipboard(text){
+      try {
+        if (navigator.clipboard && window.isSecureContext) {
+          await navigator.clipboard.writeText(text||'');
+          return true;
+        }
+      } catch(e) { /* fallback below */ }
+      try {
+        var ta = document.createElement('textarea');
+        ta.value = text||'';
+        ta.style.position = 'fixed';
+        ta.style.left = '-1000px';
+        ta.style.top = '-1000px';
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        var ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+        return ok;
+      } catch(e){ return false; }
+    }
+
+    
+
+    function markdownForMessage(m){
+      var md = '';
+      if (m && typeof m.content === 'string' && m.content.trim() !== '') {
+        md = m.content;
+      } else if (m && m.raw && m.raw.content && Array.isArray(m.raw.content)) {
+        md = m.raw.content.map(function(part){
+          if (typeof part === 'string') return part;
+          if (part && typeof part === 'object') {
+            if ((part.type === 'text' || part.type === 'input_text' || part.type === 'output_text') && part.text) return part.text;
+            if ((part.type === 'text' || part.type === 'input_text' || part.type === 'output_text') && typeof part.content === 'string') return part.content;
+          }
+          return '';
+        }).filter(Boolean).join('\n\n');
+      } else if (m && m.raw && (m.raw.type === 'function_call' || m.type === 'function_call')) {
+        var name = (m.raw && m.raw.name) || '';
+        var args = (m.raw && m.raw.arguments);
+        var obj = null;
+        if (args && typeof args === 'string') { try { obj = JSON.parse(args); } catch(e) { obj = null; } }
+        else if (args && typeof args === 'object') { obj = args; }
+        var cmdLine = '';
+        if (obj && Array.isArray(obj.command)) {
+          try { cmdLine = shJoin(obj.command); } catch(e) {}
+        }
+        if (cmdLine) {
+          md = '**' + (name || 'tool') + ' command**\n\n~~~bash\n$ ' + cmdLine + '\n~~~';
+        } else {
+          md = '**' + (name || 'tool') + ' arguments**\n\n~~~json\n' + tryString(obj || args || m.raw) + '\n~~~';
+        }
+      } else if (m && m.raw && (m.raw.type === 'function_call_output' || m.type === 'function_call_output')) {
+        var out = (m.raw && m.raw.output);
+        var textOut = '';
+        var stderrOut = '';
+        if (typeof out === 'string') {
+          try { var parsed = JSON.parse(out); if (parsed) { if (typeof parsed.output === 'string') textOut = parsed.output; if (typeof parsed.stderr === 'string') stderrOut = parsed.stderr; } } catch(e) { /* keep raw */ }
+          if (!textOut) textOut = out;
+        } else if (out && typeof out === 'object') {
+          if (typeof out.output === 'string') textOut = out.output;
+          if (typeof out.stderr === 'string') stderrOut = out.stderr;
+          if (!textOut && !stderrOut) textOut = tryString(out);
+        }
+        var parts = [];
+        if (textOut) parts.push('**stdout**\n\n~~~text\n' + textOut + '\n~~~');
+        if (stderrOut) parts.push('**stderr**\n\n~~~text\n' + stderrOut + '\n~~~');
+        md = parts.join('\n\n');
+      } else if (m && m.raw && m.raw.summary) {
+        var s = m.raw.summary;
+        if (Array.isArray(s)) {
+          md = s.map(function(part){
+            if (typeof part === 'string') return part;
+            if (part && typeof part === 'object') {
+              if (part.type === 'summary_text' && typeof part.text === 'string') return part.text;
+              if (part.type === 'summary_text' && typeof part.content === 'string') return part.content;
+            }
+            return '';
+          }).filter(Boolean).join('\n\n');
+        } else if (typeof s === 'string') {
+          md = s;
+        }
+      } else if (m && m.raw && typeof m.raw.text === 'string') {
+        md = m.raw.text;
+      }
+      return md;
+    }
+
+    function copyMessage(ix, anchorId){
+      try {
+        var m = (messagesCache || [])[ix];
+        var md = markdownForMessage(m) || '';
+        copyToClipboard(md).then(function(ok){
+          var el = document.getElementById('copy:'+anchorId);
+          if (el) { var old = el.textContent; el.textContent = ok? '✓ Copied' : 'Copy failed'; setTimeout(function(){ try{ el.textContent = '⧉ Copy'; }catch(e){} }, 1200); }
+        });
+      } catch(e){}
+    }
+
     // removed per simplification: no per-session export controls
     let currentSessionId = null;
+    let messagesCache = [];
     async function selectSession(id) {
       currentSessionId = id;
       const res = await fetch('/api/messages?session_id=' + encodeURIComponent(id) + '&limit=500');
       const data = await res.json();
+      messagesCache = data.slice();
       const el = document.getElementById('messages');
-      el.innerHTML = data.map(function(m){
+      el.innerHTML = data.map(function(m, ix){
         var role = (m.role || (m.raw && m.raw.role) || '').toLowerCase();
         var isReasoning = (m.type === 'reasoning') || (m.raw && m.raw.type === 'reasoning');
         var isFuncCall = (m.type === 'function_call') || (m.raw && m.raw.type === 'function_call');
@@ -289,8 +391,9 @@ const indexHTML = `<!doctype html>
           arrow = ' <span id="'+id2+':arrow" class="pill clickable" onclick="toggleTool(\''+id2+'\')">' + sym + '</span>';
         }
         var anchorId = (m.id && String(m.id).trim() !== '') ? ('msg-' + m.id) : ('msg-L' + (m.line_no || 0));
+        var copyBtn = '<span id="'+('copy:'+anchorId).replace(/"/g,'&quot;')+'" class="pill clickable" title="Copy markdown" onclick="copyMessage('+ix+', \''+anchorId.replace(/'/g,"\\'")+'\')">⧉</span>';
         return '<div class="msg" id="' + anchorId + '">'
-          + '<div class="meta"><span class="pill ' + rolePillClass + '">' + pillLabel + '</span>' + arrow + ' ' + model + '</div>'
+          + '<div class="meta"><div class="role"><span class="pill ' + rolePillClass + '">' + pillLabel + '</span>' + arrow + ' ' + model + '</div><div class="tool">' + copyBtn + '</div></div>'
           + '<div class="content">' + html + '</div>'
           + '</div>';
       }).filter(Boolean).join('');
