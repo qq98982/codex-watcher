@@ -19,6 +19,11 @@ Run
 go run ./cmd/codex-watcher
 # or
 PORT=8081 CODEX_DIR=/path/to/.codex go run ./cmd/codex-watcher
+# Bind host (default 127.0.0.1)
+HOST=0.0.0.0 go run ./cmd/codex-watcher --host 0.0.0.0
+
+# Search tunables
+go run ./cmd/codex-watcher --search_budget_ms 500 --search_max 300
 ```
 
 API
@@ -27,6 +32,12 @@ API
 - `GET /api/messages?session_id=...` — messages for a session (latest 200 by default).
 - `GET /api/stats` — aggregate counters (messages, sessions, roles, models if present).
 - `POST /api/reindex` — trigger full rescan (lightweight for initial setup).
+
+Export parameters (selected)
+
+- `GET /api/export/session?session_id=...&format=jsonl|json|md|txt&exclude_shell=0|1&exclude_tool_outputs=0|1`
+- `GET /api/export/by_dir?cwd=...&after=RFC3339&before=RFC3339&exclude_shell=0|1&exclude_tool_outputs=0|1` (markdown)
+  - Defaults: exclude_shell=1, exclude_tool_outputs=1
 
 UI
 
@@ -49,4 +60,3 @@ Next Steps
 
 - If you can share 10–20 sample lines from both `history.jsonl` and a `sessions/*.jsonl`,
   I can refine field mapping (e.g., tokens, cost, tools, errors, attachments, model, etc.).
-
