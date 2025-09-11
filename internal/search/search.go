@@ -116,6 +116,12 @@ func Parse(raw string, scopeStr string) Query {
     return Query{Groups: groups, Scope: scope}
 }
 
+// Tunables (can be adjusted by callers, e.g., via flags/env in main)
+var (
+    MaxReturn = 200
+    Budget    = 350 * time.Millisecond
+)
+
 // Exec evaluates the Query against the in-memory index and returns results.
 // limit is the number of rows to return; offset skips that many initial hits.
 // A soft time budget is enforced to avoid long scans on large datasets.
@@ -128,11 +134,10 @@ func Exec(idx *indexer.Indexer, q Query, limit, offset int) Response {
         offset = 0
     }
     // soft caps
-    const maxReturn = 200
-    if limit > maxReturn {
-        limit = maxReturn
+    if limit > MaxReturn {
+        limit = MaxReturn
     }
-    budget := 350 * time.Millisecond // conservative baseline
+    budget := Budget // conservative baseline
 
     // sessions lookup for CWD filters
     sessions := idx.Sessions()

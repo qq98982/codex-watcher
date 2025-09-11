@@ -19,6 +19,7 @@ import (
 
     "codex-watcher/internal/api"
     "codex-watcher/internal/indexer"
+    "codex-watcher/internal/search"
 )
 
 type config struct {
@@ -39,6 +40,8 @@ func resolveConfig() (config, error) {
         portFlag  = flag.String("port", "", "port to listen on")
         dirFlag   = flag.String("codex", "", "path to ~/.codex directory")
         hostFlag  = flag.String("host", "", "host interface to bind (default 127.0.0.1)")
+        searchBudget = flag.Int("search_budget_ms", 0, "soft time budget for search (ms, default 350)")
+        searchMax    = flag.Int("search_max", 0, "max hits returned (default 200)")
         showUsage = flag.Bool("h", false, "show help")
     )
     flag.Parse()
@@ -60,6 +63,8 @@ func resolveConfig() (config, error) {
     if *hostFlag != "" {
         cfg.Host = *hostFlag
     }
+    if *searchBudget > 0 { search.Budget = time.Duration(*searchBudget) * time.Millisecond }
+    if *searchMax > 0 { search.MaxReturn = *searchMax }
     if cfg.CodexDir == "" {
         return cfg, errors.New("could not resolve ~/.codex directory; set CODEX_DIR or --codex")
     }
