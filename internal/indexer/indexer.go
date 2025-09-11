@@ -67,6 +67,10 @@ type Stats struct {
     ByRole        map[string]int `json:"by_role,omitempty"`
     ByModel       map[string]int `json:"by_model,omitempty"`
     Fields        map[string]int `json:"fields,omitempty"` // observed top-level JSON keys
+    // observability
+    BadLines      int            `json:"bad_lines,omitempty"`
+    FilesScanned  int            `json:"files_scanned,omitempty"`
+    LastScanMs    int            `json:"last_scan_ms,omitempty"`
 }
 
 func New(codexDir string) *Indexer {
@@ -105,6 +109,8 @@ func (x *Indexer) Run(ctxDone <-chan struct{}) {
 
 // scanAll locates known files and tails new lines.
 func (x *Indexer) scanAll() error {
+    start := time.Now()
+    files := 0
     // sessions/*.jsonl
     sessionsDir := filepath.Join(x.codexDir, "sessions")
     _ = filepath.WalkDir(sessionsDir, func(path string, d os.DirEntry, err error) error {
@@ -120,9 +126,15 @@ func (x *Indexer) scanAll() error {
                 id = d.Name()
             }
             _ = x.tailFile(id, path)
+            files++
         }
         return nil
     })
+    // update observability metrics
+    x.mu.Lock()
+    x.stats.FilesScanned = files
+    x.stats.LastScanMs = int(time.Since(start).Milliseconds())
+    x.mu.Unlock()
     return nil
 }
 
@@ -192,7 +204,10 @@ func (x *Indexer) tailFile(sessionID, path string) error {
 func (x *Indexer) ingestLine(sessionID, path, line string) {
     var raw map[string]any
     if err := json.Unmarshal([]byte(strings.TrimSpace(line)), &raw); err != nil {
-        // ignore bad line but could record
+        // ignore bad line but record count
+        x.mu.Lock()
+        x.stats.BadLines++
+        x.mu.Unlock()
         return
     }
 
