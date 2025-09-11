@@ -111,12 +111,6 @@ func (x *Indexer) Run(ctxDone <-chan struct{}) {
 func (x *Indexer) scanAll() error {
     start := time.Now()
     files := 0
-    // global history.jsonl (optional)
-    histPath := filepath.Join(x.codexDir, "history.jsonl")
-    if fi, err := os.Stat(histPath); err == nil && !fi.IsDir() {
-        _ = x.tailFile("", histPath)
-        files++
-    }
     // sessions/*.jsonl
     sessionsDir := filepath.Join(x.codexDir, "sessions")
     _ = filepath.WalkDir(sessionsDir, func(path string, d os.DirEntry, err error) error {
