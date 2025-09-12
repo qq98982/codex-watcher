@@ -249,11 +249,14 @@ const indexHTML = `<!doctype html>
       var c = document.getElementById(id+':collapsed');
       var e = document.getElementById(id+':expanded');
       var a = document.getElementById(id+':arrow');
+      var a2 = document.getElementById(id+':arrow2');
       if (!c || !e) return;
       var isCollapsedShown = !c.classList.contains('hidden');
       if (isCollapsedShown) { c.classList.add('hidden'); e.classList.remove('hidden'); }
       else { c.classList.remove('hidden'); e.classList.add('hidden'); }
-      if (a) a.textContent = isCollapsedShown ? '▾' : '▸';
+      var sym = isCollapsedShown ? '▾' : '▸';
+      if (a) a.textContent = sym;
+      if (a2) a2.textContent = sym;
       try { hljs.highlightAll(); } catch(e) {}
     }
     // Clipboard helpers and per-session message cache
@@ -540,8 +543,14 @@ const indexHTML = `<!doctype html>
               body += '<div><div class="meta"><strong>Result</strong></div><pre class="mt-1">' + escapeHTML(full) + '</pre></div>';
             }
           }
-          var collapsedDiv = '<div id="'+id2+':collapsed" class="meta mono' + (collapseTools? '' : ' hidden') + '"><p class="mt-1 ellipsis">' + escapeHTML(truncate(oneLine(summary), 140)) + '</p></div>';
-          var expandedDiv = '<div id="'+id2+':expanded" class="' + (collapseTools? 'hidden' : '') + '">' + body + '</div>';
+          var arrowSym = collapseTools ? '▸' : '▾';
+          var collapsedDiv = '<div id="'+id2+':collapsed" class="meta mono' + (collapseTools? '' : ' hidden') + '">'
+            + '<span id="'+id2+':arrow" class="pill clickable" onclick="toggleTool(\''+id2+'\')">'+arrowSym+'</span> '
+            + '<span class="clickable" onclick="toggleTool(\''+id2+'\')">' + escapeHTML(truncate(oneLine(summary), 140)) + '</span>'
+            + '</div>';
+          var expandedDiv = '<div id="'+id2+':expanded" class="' + (collapseTools? 'hidden' : '') + '">'
+            + '<div class="meta mono"><span id="'+id2+':arrow2" class="pill clickable" onclick="toggleTool(\''+id2+'\')">▾</span> ' + escapeHTML(truncate(oneLine(summary), 140)) + '</div>'
+            + body + '</div>';
           htmlBuilt += '<div class="mt-1">' + collapsedDiv + expandedDiv + '</div>';
         });
       } else if (m && m.raw && (m.raw.type === 'function_call' || m.type === 'function_call')) {
