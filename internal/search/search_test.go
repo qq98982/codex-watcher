@@ -10,7 +10,7 @@ import (
 // helper to build an indexer with a few messages
 func buildTestIndexer(t *testing.T) *indexer.Indexer {
     t.Helper()
-    x := indexer.New("/tmp/.codex")
+    x := indexer.New("/tmp/.codex", "")
     now := time.Now()
     // Session s1: content with "go build"
     x.IngestForTest("s1", map[string]any{

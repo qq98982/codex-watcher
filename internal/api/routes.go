@@ -33,7 +33,20 @@ func AttachRoutes(mux *http.ServeMux, idx *indexer.Indexer) {
 
     // API
     mux.HandleFunc("/api/sessions", func(w http.ResponseWriter, r *http.Request) {
-        writeJSON(w, 200, idx.Sessions())
+        src := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("source")))
+        proj := strings.TrimSpace(r.URL.Query().Get("project"))
+        sessions := idx.Sessions()
+        if src != "" || proj != "" {
+            filtered := make([]indexer.Session, 0, len(sessions))
+            for _, s := range sessions {
+                if src != "" && strings.ToLower(s.Provider) != src { continue }
+                if proj != "" && s.Project != proj { continue }
+                filtered = append(filtered, s)
+            }
+            writeJSON(w, 200, filtered)
+            return
+        }
+        writeJSON(w, 200, sessions)
     })
     mux.HandleFunc("/api/messages", func(w http.ResponseWriter, r *http.Request) {
         q := r.URL.Query()
@@ -266,7 +279,30 @@ const indexHTML = `<!doctype html>
       } catch(e){ return false; }
     }
 
-    
+    // Source switching (Codex | Claude)
+    let currentSource = (function(){ try{ return localStorage.getItem('source') || 'codex'; }catch(e){ return 'codex'; } })();
+    function setSource(src){
+      currentSource = (src === 'claude') ? 'claude' : 'codex';
+      try{ localStorage.setItem('source', currentSource); }catch(e){}
+      currentSessionId = null;
+      loadSessions();
+    }
+    async function loadSessions(){
+      try{
+        const res = await fetch('/api/sessions?source=' + encodeURIComponent(currentSource));
+        const data = await res.json();
+        sessionsCache = Array.isArray(data) ? data : [];
+        renderSessions(sessionsCache);
+        if (sessionsCache.length > 0) { selectSession(sessionsCache[0].id); }
+      }catch(e){}
+      updateSourceTabs();
+    }
+    function updateSourceTabs(){
+      var cod = document.getElementById('tab-codex');
+      var cla = document.getElementById('tab-claude');
+      if (cod) { if (currentSource==='codex') cod.classList.add('fw-700'); else cod.classList.remove('fw-700'); }
+      if (cla) { if (currentSource==='claude') cla.classList.add('fw-700'); else cla.classList.remove('fw-700'); }
+    }
 
     function markdownForMessage(m){
       var md = '';
@@ -354,7 +390,7 @@ const indexHTML = `<!doctype html>
       const el = document.getElementById('messages');
       el.innerHTML = data.map(function(m, ix){
         var role = (m.role || (m.raw && m.raw.role) || '').toLowerCase();
-        var isReasoning = (m.type === 'reasoning') || (m.raw && m.raw.type === 'reasoning');
+        var isReasoning = !!(m.thinking && String(m.thinking).trim());
         var isFuncCall = (m.type === 'function_call') || (m.raw && m.raw.type === 'function_call');
         var isFuncOut = (m.type === 'function_call_output') || (m.raw && m.raw.type === 'function_call_output');
         var rolePillClass = isReasoning ? 'role-assistant' : (role === 'user' ? 'role-user' : (role === 'assistant' ? 'role-assistant' : 'role-tool'));
@@ -435,6 +471,79 @@ const indexHTML = `<!doctype html>
           }
           return '';
         }).filter(Boolean).join('\n\n');
+      } else if (m && m.raw && m.raw.message && Array.isArray(m.raw.message.content)) {
+        // Claude: render thinking + text, and collapse tool segments within the message
+        var textParts = [];
+        var thinkingParts = [];
+        var toolsMap = {};
+        (m.raw.message.content || []).forEach(function(part){
+          if (!part || typeof part !== 'object') return;
+          if (part.type === 'text' || part.type === 'input_text' || part.type === 'output_text') {
+            if (typeof part.text === 'string') textParts.push(part.text);
+            else if (typeof part.content === 'string') textParts.push(part.content);
+          } else if (part.type === 'thinking' && typeof part.thinking === 'string') {
+            thinkingParts.push(part.thinking);
+          } else if (part.type === 'tool_use') {
+            toolsMap[part.id] = toolsMap[part.id] || {name: part.name || 'tool', input: part.input};
+          } else if (part.type === 'tool_result') {
+            var k = part.tool_use_id;
+            toolsMap[k] = toolsMap[k] || {};
+            toolsMap[k].result = part.content;
+            toolsMap[k].is_error = !!part.is_error;
+          }
+        });
+        // Thinking block first
+        if (thinkingParts.length) {
+          var th = thinkingParts.join('\n\n');
+          var thTrunc = th.length>32000 ? th.slice(0,32000) + '\n... (truncated)' : th;
+          htmlBuilt += '<div><div class="meta"><strong>Thinking</strong></div>'
+                     + '<pre class="mt-1">' + escapeHTML(thTrunc) + '</pre>'
+                     + '</div>';
+        }
+        md = textParts.join('\n\n');
+        // Tool blocks collapsed
+        Object.keys(toolsMap).forEach(function(key){
+          var t = toolsMap[key] || {};
+          var id2 = 'tool-' + key;
+          var args = t.input || {};
+          var argsSummary = '';
+          try {
+            if (typeof args === 'object') {
+              if (Array.isArray(args.command)) argsSummary = '$ ' + shJoin(args.command);
+              else if (args.query) argsSummary = 'query: ' + oneLine(args.query);
+              else if (args.path || args.file_path) argsSummary = 'path: ' + oneLine(args.path || args.file_path);
+              else if (args.url) argsSummary = 'url: ' + args.url;
+              else argsSummary = 'args';
+            } else if (typeof args === 'string') { argsSummary = truncate(args, 140); }
+          } catch(e){}
+          var out = '';
+          if (typeof t.result === 'string') { out = t.result; }
+          else if (Array.isArray(t.result)) {
+            out = t.result.map(function(p){ if(typeof p==='string') return p; if(p && typeof p==='object' && typeof p.text==='string') return p.text; return ''; }).filter(Boolean).join('\n');
+          } else if (t.result && typeof t.result === 'object') {
+            try{ out = JSON.stringify(t.result, null, 2); }catch(e){ out = '' }
+          }
+          var summary = (t.name || 'tool') + (argsSummary? (' · ' + argsSummary) : '') + (t.is_error? ' → error' : (out? ' → ok' : ''));
+          var body = '';
+          if (args && typeof args === 'object') {
+            body += '<div><div class="meta"><strong>Args</strong></div><pre class="mt-1">' + escapeHTML(tryString(args)) + '</pre></div>';
+          }
+          if (out) {
+            var MAX = 5000; var id = id2 + ':out';
+            var full = out; var trunc = out.length>MAX? out.slice(0,MAX)+'\n... (truncated)' : out;
+            if (full.length>MAX) {
+              body += '<div><div class="meta"><strong>Result</strong> · <button id="'+id+':btn" class="btn" onclick="toggleOutput(\''+id+'\')">Show full</button></div>'
+                + '<pre id="'+id+':trunc" class="mt-1">' + escapeHTML(trunc) + '</pre>'
+                + '<pre id="'+id+':full" class="hidden mt-1">' + escapeHTML(full) + '</pre>'
+                + '</div>';
+            } else {
+              body += '<div><div class="meta"><strong>Result</strong></div><pre class="mt-1">' + escapeHTML(full) + '</pre></div>';
+            }
+          }
+          var collapsedDiv = '<div id="'+id2+':collapsed" class="meta mono' + (collapseTools? '' : ' hidden') + '"><p class="mt-1 ellipsis">' + escapeHTML(truncate(oneLine(summary), 140)) + '</p></div>';
+          var expandedDiv = '<div id="'+id2+':expanded" class="' + (collapseTools? 'hidden' : '') + '">' + body + '</div>';
+          htmlBuilt += '<div class="mt-1">' + collapsedDiv + expandedDiv + '</div>';
+        });
       } else if (m && m.raw && (m.raw.type === 'function_call' || m.type === 'function_call')) {
         // Render function call arguments; prefer commands for shell
         var name = (m.raw && m.raw.name) || '';
@@ -811,18 +920,9 @@ const indexHTML = `<!doctype html>
       try{ viewMode = localStorage.getItem('viewMode') || 'time-cwd'; }catch(e){ viewMode='time-cwd'; }
       var sel = document.getElementById('viewModeSelect');
       if (sel) sel.value = viewMode;
-      const init = JSON.parse(document.getElementById('init-sessions').textContent);
-      sessionsCache = Array.isArray(init) ? init : [];
-      renderSessions(sessionsCache);
-      // On first load, if nothing is selected, open the most recent session
-      try {
-        if (!currentSessionId && Array.isArray(sessionsCache) && sessionsCache.length>0) {
-          selectSession(sessionsCache[0].id);
-        }
-      } catch(e){}
+      loadSessions();
     });
   </script>
-  <script type="application/json" id="init-sessions">{{ toJSON .Sessions }}</script>
 </head>
 <body>
   <header>
@@ -840,6 +940,12 @@ const indexHTML = `<!doctype html>
   <div class="container">
     <div class="sidebar">
       <div id="search-results" class="hidden"></div>
+      <div class="sidebar__controls meta" style="display:flex; gap:6px; align-items:center; border-bottom: 1px solid var(--color-border);">
+        <span>Source</span>
+        <button id="tab-codex" class="btn" onclick="setSource('codex')">Codex</button>
+        <button id="tab-claude" class="btn" onclick="setSource('claude')">Claude</button>
+        <div class="flex-1"></div>
+      </div>
       <div id="sessions"></div>
       <div id="sidebar-controls" class="meta sidebar__controls">
         <span>View</span>

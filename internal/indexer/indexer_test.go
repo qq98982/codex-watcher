@@ -39,18 +39,18 @@ func TestParseTime(t *testing.T) {
 }
 
 func TestIngestAndSessions(t *testing.T) {
-    x := New("/tmp/.codex")
+    x := New("/tmp/.codex", "")
     // first message should set title from content
     line1 := `{"id":"m1","session_id":"s1","role":"user","content":"Build a CLI tool","ts":"2024-01-02T03:04:05Z","model":"gpt-4","cwd":"/home/user/project1"}`
-    x.ingestLine("s1", "/tmp/.codex/sessions/s1.jsonl", line1)
+    x.ingestLine("codex", "", "s1", "/tmp/.codex/sessions/s1.jsonl", line1)
 
     // assistant reply
     line2 := `{"id":"m2","session_id":"s1","role":"assistant","content":"Sure, here is a plan","ts":"2024-01-02T03:05:05Z","model":"gpt-4"}`
-    x.ingestLine("s1", "/tmp/.codex/sessions/s1.jsonl", line2)
+    x.ingestLine("codex", "", "s1", "/tmp/.codex/sessions/s1.jsonl", line2)
 
     // second session with explicit title and cwd in environment_context
     line3 := `{"id":"m3","session_id":"s2","role":"user","title":"Project Setup","content":"Let's start","ts":"2024-01-02T04:05:05Z","environment_context":"<environment_context> <cwd>/workspace/app</cwd> </environment_context>"}`
-    x.ingestLine("s2", "/tmp/.codex/sessions/s2.jsonl", line3)
+    x.ingestLine("codex", "", "s2", "/tmp/.codex/sessions/s2.jsonl", line3)
 
     // assertions
     if x.stats.TotalMessages != 3 {

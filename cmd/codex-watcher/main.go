@@ -25,6 +25,7 @@ import (
 type config struct {
     Port     string
     CodexDir string
+    ClaudeDir string
     Host     string
 }
 
@@ -39,6 +40,7 @@ func resolveConfig() (config, error) {
     var (
         portFlag  = flag.String("port", "", "port to listen on")
         dirFlag   = flag.String("codex", "", "path to ~/.codex directory")
+        claudeFlag= flag.String("claude", "", "path to ~/.claude/projects directory")
         hostFlag  = flag.String("host", "", "host interface to bind (default 0.0.0.0)")
         searchBudget = flag.Int("search_budget_ms", 0, "soft time budget for search (ms, default 350)")
         searchMax    = flag.Int("search_max", 0, "max hits returned (default 200)")
@@ -52,6 +54,7 @@ func resolveConfig() (config, error) {
     cfg := config{
         Port:     getenv("PORT", "7077"),
         CodexDir: getenv("CODEX_DIR", filepath.Join(os.Getenv("HOME"), ".codex")),
+        ClaudeDir: getenv("CLAUDE_DIR", filepath.Join(os.Getenv("HOME"), ".claude", "projects")),
         Host:     getenv("HOST", "0.0.0.0"),
     }
     if *portFlag != "" {
@@ -59,6 +62,9 @@ func resolveConfig() (config, error) {
     }
     if *dirFlag != "" {
         cfg.CodexDir = *dirFlag
+    }
+    if *claudeFlag != "" {
+        cfg.ClaudeDir = *claudeFlag
     }
     if *hostFlag != "" {
         cfg.Host = *hostFlag
@@ -115,7 +121,7 @@ func main() {
 
 func runServer(cfg config) {
     // Prepare indexer
-    idx := indexer.New(cfg.CodexDir)
+    idx := indexer.New(cfg.CodexDir, cfg.ClaudeDir)
 
     // Kick off background polling watcher
     ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -141,7 +147,7 @@ func runServer(cfg config) {
         IdleTimeout:       60 * time.Second,
     }
 
-    log.Printf("codex-watcher listening on http://%s:%s (watching %s)\n", cfg.Host, cfg.Port, cfg.CodexDir)
+    log.Printf("codex-watcher listening on http://%s:%s (codex=%s, claude=%s)\n", cfg.Host, cfg.Port, cfg.CodexDir, cfg.ClaudeDir)
 
     // write pid file
     _ = writePIDFile(cfg, os.Getpid())
