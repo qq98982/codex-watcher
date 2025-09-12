@@ -33,7 +33,20 @@ func AttachRoutes(mux *http.ServeMux, idx *indexer.Indexer) {
 
     // API
     mux.HandleFunc("/api/sessions", func(w http.ResponseWriter, r *http.Request) {
-        writeJSON(w, 200, idx.Sessions())
+        src := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("source")))
+        proj := strings.TrimSpace(r.URL.Query().Get("project"))
+        sessions := idx.Sessions()
+        if src != "" || proj != "" {
+            filtered := make([]indexer.Session, 0, len(sessions))
+            for _, s := range sessions {
+                if src != "" && strings.ToLower(s.Provider) != src { continue }
+                if proj != "" && s.Project != proj { continue }
+                filtered = append(filtered, s)
+            }
+            writeJSON(w, 200, filtered)
+            return
+        }
+        writeJSON(w, 200, sessions)
     })
     mux.HandleFunc("/api/messages", func(w http.ResponseWriter, r *http.Request) {
         q := r.URL.Query()
@@ -236,12 +249,32 @@ const indexHTML = `<!doctype html>
       var c = document.getElementById(id+':collapsed');
       var e = document.getElementById(id+':expanded');
       var a = document.getElementById(id+':arrow');
+      var a2 = document.getElementById(id+':arrow2');
+      var a0 = document.getElementById(id+':arrow0');
       if (!c || !e) return;
       var isCollapsedShown = !c.classList.contains('hidden');
       if (isCollapsedShown) { c.classList.add('hidden'); e.classList.remove('hidden'); }
       else { c.classList.remove('hidden'); e.classList.add('hidden'); }
-      if (a) a.textContent = isCollapsedShown ? '▾' : '▸';
+      var sym = isCollapsedShown ? '▾' : '▸';
+      if (a) a.textContent = sym;
+      if (a2) a2.textContent = sym;
+      if (a0) a0.textContent = sym;
       try { hljs.highlightAll(); } catch(e) {}
+    }
+
+    // Event delegation for sanitized content
+    function attachMessageDelegates(){
+      var container = document.getElementById('messages');
+      if (!container || container.__delegatesBound) return;
+      container.addEventListener('click', function(ev){
+        var t = ev.target;
+        if (!t) return;
+        var node = t.closest && t.closest('[data-toggle]');
+        if (node) { var id = node.getAttribute('data-toggle'); if (id) { toggleTool(id); return; } }
+        var node2 = t.closest && t.closest('[data-output-toggle]');
+        if (node2) { var id2 = node2.getAttribute('data-output-toggle'); if (id2) { toggleOutput(id2); return; } }
+      }, false);
+      container.__delegatesBound = true;
     }
     // Clipboard helpers and per-session message cache
     async function copyToClipboard(text){
@@ -266,7 +299,30 @@ const indexHTML = `<!doctype html>
       } catch(e){ return false; }
     }
 
-    
+    // Source switching (Codex | Claude)
+    let currentSource = (function(){ try{ return localStorage.getItem('source') || 'codex'; }catch(e){ return 'codex'; } })();
+    function setSource(src){
+      currentSource = (src === 'claude') ? 'claude' : 'codex';
+      try{ localStorage.setItem('source', currentSource); }catch(e){}
+      currentSessionId = null;
+      loadSessions();
+    }
+    async function loadSessions(){
+      try{
+        const res = await fetch('/api/sessions?source=' + encodeURIComponent(currentSource));
+        const data = await res.json();
+        sessionsCache = Array.isArray(data) ? data : [];
+        renderSessions(sessionsCache);
+        if (sessionsCache.length > 0) { selectSession(sessionsCache[0].id); }
+      }catch(e){}
+      updateSourceTabs();
+    }
+    function updateSourceTabs(){
+      var cod = document.getElementById('tab-codex');
+      var cla = document.getElementById('tab-claude');
+      if (cod) { if (currentSource==='codex') cod.classList.add('fw-700'); else cod.classList.remove('fw-700'); }
+      if (cla) { if (currentSource==='claude') cla.classList.add('fw-700'); else cla.classList.remove('fw-700'); }
+    }
 
     function markdownForMessage(m){
       var md = '';
@@ -348,13 +404,14 @@ const indexHTML = `<!doctype html>
     let messagesCache = [];
     async function selectSession(id) {
       currentSessionId = id;
+      try{ localStorage.setItem('last:'+ (currentSource||'codex'), id); }catch(e){}
       const res = await fetch('/api/messages?session_id=' + encodeURIComponent(id) + '&limit=500');
       const data = await res.json();
       messagesCache = data.slice();
       const el = document.getElementById('messages');
       el.innerHTML = data.map(function(m, ix){
         var role = (m.role || (m.raw && m.raw.role) || '').toLowerCase();
-        var isReasoning = (m.type === 'reasoning') || (m.raw && m.raw.type === 'reasoning');
+        var isReasoning = !!(m.thinking && String(m.thinking).trim());
         var isFuncCall = (m.type === 'function_call') || (m.raw && m.raw.type === 'function_call');
         var isFuncOut = (m.type === 'function_call_output') || (m.raw && m.raw.type === 'function_call_output');
         var rolePillClass = isReasoning ? 'role-assistant' : (role === 'user' ? 'role-user' : (role === 'assistant' ? 'role-assistant' : 'role-tool'));
@@ -364,6 +421,27 @@ const indexHTML = `<!doctype html>
         var toolName = capFirst(toolNameRaw);
         var pillLabel = isReasoning ? 'Assistant Thinking' : (isFuncCall ? ('Tool: ' + toolName) : (isFuncOut ? ('Tool Output' + ((m.raw && m.raw.name) ? (': ' + capFirst(m.raw.name)) : '')) : (role || 'message')));
         var id2 = null;
+        // Detect first Claude tool result id to place header arrow
+        var firstToggleId = null;
+        try {
+          if (m && m.raw && m.raw.message && Array.isArray(m.raw.message.content)) {
+            for (var i=0;i<m.raw.message.content.length;i++){
+              var part = m.raw.message.content[i];
+              if (!part || typeof part !== 'object') continue;
+              if (part.type === 'tool_result') {
+                var out = '';
+                if (typeof part.content === 'string') out = part.content;
+                else if (Array.isArray(part.content)) {
+                  out = part.content.map(function(p){ if(typeof p==='string') return p; if(p && typeof p==='object' && typeof p.text==='string') return p.text; return ''; }).filter(Boolean).join('\n');
+                } else if (part.content && typeof part.content === 'object') {
+                  try{ out = JSON.stringify(part.content); }catch(e){}
+                }
+                var hasOutOrError = !!(part.is_error || (out && String(out).trim()));
+                if (hasOutOrError && part.tool_use_id) { firstToggleId = 'tool-' + part.tool_use_id; break; }
+              }
+            }
+          }
+        } catch(e){}
         var html = renderContent(m);
         if (isFuncCall || isFuncOut) {
           id2 = 'tool-' + (m.id || Math.random().toString(36).slice(2));
@@ -380,6 +458,11 @@ const indexHTML = `<!doctype html>
             else if (out && typeof out === 'object') { if (typeof out.output==='string') textOut=out.output; if(typeof out.stderr==='string') stderrOut=out.stderr; }
             var parts=[]; if (textOut) parts.push('stdout'); if (stderrOut) parts.push('stderr'); summary = parts.length? ('output: ' + parts.join(', ')) : 'output';
           }
+          var hasBody = !!(html && html.trim());
+          if (!hasBody) {
+            // skip rendering empty tool-only messages entirely
+            return '';
+          }
           var collapsedDiv = '<div id="'+id2+':collapsed" class="meta mono' + (collapseTools? '' : ' hidden') + '"><p class="mt-1 ellipsis">' + escapeHTML(truncate(oneLine(summary), 140)) + '</p></div>';
           var expandedDiv = '<div id="'+id2+':expanded" class="' + (collapseTools? 'hidden' : '') + '">' + html + '</div>';
           html = collapsedDiv + expandedDiv;
@@ -388,7 +471,10 @@ const indexHTML = `<!doctype html>
         var arrow = '';
         if (id2) {
           var sym = collapseTools ? '▸' : '▾';
-          arrow = ' <span id="'+id2+':arrow" class="pill clickable" onclick="toggleTool(\''+id2+'\')">' + sym + '</span>';
+          arrow = ' <span id="'+id2+':arrow" class="pill clickable" data-toggle="'+id2+'">' + sym + '</span>';
+        } else if (firstToggleId) {
+          var sym2 = collapseTools ? '▸' : '▾';
+          arrow = ' <span id="'+firstToggleId+':arrow0" class="pill clickable" data-toggle="'+firstToggleId+'">' + sym2 + '</span>';
         }
         var anchorId = (m.id && String(m.id).trim() !== '') ? ('msg-' + m.id) : ('msg-L' + (m.line_no || 0));
         var copyBtn = '<span id="'+('copy:'+anchorId).replace(/"/g,'&quot;')+'" class="pill clickable" title="Copy markdown" onclick="copyMessage('+ix+', \''+anchorId.replace(/'/g,"\\'")+'\')">⧉</span>';
@@ -401,6 +487,9 @@ const indexHTML = `<!doctype html>
         el.innerHTML = '<div class="meta empty-hint">此会话没有可显示的文本</div>';
       }
       try { hljs.highlightAll(); } catch(e) {}
+      attachMessageDelegates();
+      // Mark the selected session in the sidebar list
+      try { setActiveSessionInList(id); } catch(e) {}
       // scroll to a pending focus target if requested
       try {
         if (window.pendingFocus && window.pendingFocus.sessionId === id) {
@@ -419,6 +508,16 @@ const indexHTML = `<!doctype html>
       } catch(e) {}
     }
 
+    function setActiveSessionInList(id){
+      var nodes = document.querySelectorAll('#sessions .item[data-id]');
+      for (var i=0;i<nodes.length;i++){
+        var n = nodes[i];
+        if (!n || !n.dataset) continue;
+        if (n.dataset.id === id) n.classList.add('active');
+        else n.classList.remove('active');
+      }
+    }
+
     function tryString(v){ if(typeof v==='string') return v; try{ return JSON.stringify(v, null, 2)}catch(e){return ''}}
 
     function renderContent(m){
@@ -435,6 +534,92 @@ const indexHTML = `<!doctype html>
           }
           return '';
         }).filter(Boolean).join('\n\n');
+      } else if (m && m.raw && m.raw.message && Array.isArray(m.raw.message.content)) {
+        // Claude: render thinking + text, and collapse tool segments within the message
+        var textParts = [];
+        var thinkingParts = [];
+        var toolsMap = {};
+        (m.raw.message.content || []).forEach(function(part){
+          if (!part || typeof part !== 'object') return;
+          if (part.type === 'text' || part.type === 'input_text' || part.type === 'output_text') {
+            if (typeof part.text === 'string') textParts.push(part.text);
+            else if (typeof part.content === 'string') textParts.push(part.content);
+          } else if (part.type === 'thinking' && typeof part.thinking === 'string') {
+            thinkingParts.push(part.thinking);
+          } else if (part.type === 'tool_use') {
+            toolsMap[part.id] = toolsMap[part.id] || {name: part.name || 'tool', input: part.input};
+          } else if (part.type === 'tool_result') {
+            var k = part.tool_use_id;
+            toolsMap[k] = toolsMap[k] || {};
+            toolsMap[k].result = part.content;
+            toolsMap[k].is_error = !!part.is_error;
+          }
+        });
+        // Thinking block first
+        var hasMeaningful = false;
+        if (thinkingParts.length) {
+          var th = thinkingParts.join('\n\n');
+          var thTrunc = th.length>32000 ? th.slice(0,32000) + '\n... (truncated)' : th;
+          htmlBuilt += '<div><div class="meta"><strong>Thinking</strong></div>'
+                     + '<pre class="mt-1">' + escapeHTML(thTrunc) + '</pre>'
+                     + '</div>';
+          hasMeaningful = true;
+        }
+        md = textParts.join('\n\n');
+        if (md && md.trim()) { hasMeaningful = true; }
+        // Tool blocks collapsed
+        Object.keys(toolsMap).forEach(function(key){
+          var t = toolsMap[key] || {};
+          var id2 = 'tool-' + key;
+          var args = t.input || {};
+          var argsSummary = '';
+          try {
+            if (typeof args === 'object') {
+              if (Array.isArray(args.command)) argsSummary = '$ ' + shJoin(args.command);
+              else if (args.query) argsSummary = 'query: ' + oneLine(args.query);
+              else if (args.path || args.file_path) argsSummary = 'path: ' + oneLine(args.path || args.file_path);
+              else if (args.url) argsSummary = 'url: ' + args.url;
+              else argsSummary = 'args';
+            } else if (typeof args === 'string') { argsSummary = truncate(args, 140); }
+          } catch(e){}
+          var out = '';
+          if (typeof t.result === 'string') { out = t.result; }
+          else if (Array.isArray(t.result)) {
+            out = t.result.map(function(p){ if(typeof p==='string') return p; if(p && typeof p==='object' && typeof p.text==='string') return p.text; return ''; }).filter(Boolean).join('\n');
+          } else if (t.result && typeof t.result === 'object') {
+            try{ out = JSON.stringify(t.result, null, 2); }catch(e){ out = '' }
+          }
+          var hasOutOrError = !!(t.is_error || (out && out.trim()))
+          var summary = (t.name || 'tool') + (argsSummary? (' · ' + argsSummary) : '') + (t.is_error? ' → error' : (out? ' → ok' : ''));
+          var body = '';
+          if (out && out.trim()) {
+            var MAX = 5000; var id = id2 + ':out';
+            var full = out; var trunc = out.length>MAX? out.slice(0,MAX)+'\n... (truncated)' : out;
+          if (full.length>MAX) {
+            body += '<div><div class="meta"><strong>Result</strong> · <button id="'+id+':btn" class="btn" data-output-toggle="'+id+'">Show full</button></div>'
+                + '<pre id="'+id+':trunc" class="mt-1">' + escapeHTML(trunc) + '</pre>'
+                + '<pre id="'+id+':full" class="hidden mt-1">' + escapeHTML(full) + '</pre>'
+                + '</div>';
+          } else {
+              body += '<div><div class="meta"><strong>Result</strong></div><pre class="mt-1">' + escapeHTML(full) + '</pre></div>';
+            }
+          }
+          // Only add a toggle block when there is a meaningful body (result or error)
+          if (hasOutOrError && (body && body.trim())) {
+            var collapsedDiv = '<div id="'+id2+':collapsed" class="meta mono' + (collapseTools? '' : ' hidden') + '">'
+              + '<span class="clickable" data-toggle="'+id2+'">' + escapeHTML(truncate(oneLine(summary), 140)) + '</span>'
+              + '</div>';
+            var expandedDiv = '<div id="'+id2+':expanded" class="' + (collapseTools? 'hidden' : '') + '">'
+              + '<div class="meta mono"><span id="'+id2+':arrow2" class="pill clickable" data-toggle="'+id2+'">▾</span> ' + escapeHTML(truncate(oneLine(summary), 140)) + '</div>'
+              + body + '</div>';
+            htmlBuilt += '<div class="mt-1">' + collapsedDiv + expandedDiv + '</div>';
+            hasMeaningful = true;
+          } else {
+            // No result and no error → skip rendering this tool block entirely
+          }
+        });
+        // If nothing meaningful, return empty to let caller skip rendering the message
+        if (!hasMeaningful) { return ''; }
       } else if (m && m.raw && (m.raw.type === 'function_call' || m.type === 'function_call')) {
         // Render function call arguments; prefer commands for shell
         var name = (m.raw && m.raw.name) || '';
@@ -471,7 +656,7 @@ const indexHTML = `<!doctype html>
           var full = body;
           var trunc = body.length>MAX ? body.slice(0,MAX) + '\n... (truncated)' : body;
           if (full.length>MAX) {
-            return '<div><div class="meta"><strong>' + label + '</strong> · <button id="'+id+':btn" class="btn" onclick="toggleOutput(\''+id+'\')">Show full</button></div>'
+            return '<div><div class="meta"><strong>' + label + '</strong> · <button id="'+id+':btn" class="btn" data-output-toggle="'+id+'">Show full</button></div>'
               + '<pre id="'+id+':trunc" class="mt-1">' + escapeHTML(trunc) + '</pre>'
               + '<pre id="'+id+':full" class="hidden mt-1">' + escapeHTML(full) + '</pre>'
               + '</div>';
@@ -734,6 +919,8 @@ const indexHTML = `<!doctype html>
           var first = s.querySelector('.item');
           if (first && first.dataset && first.dataset.id) { selectSession(first.dataset.id); }
         }
+        // re-apply active highlight after render
+        try { setActiveSessionInList(currentSessionId); } catch(e) {}
       } else if (viewMode === 'cwd-time') {
         var groups = groupByCWD(filtered);
         s.innerHTML = groups.map(function(g){
@@ -763,6 +950,7 @@ const indexHTML = `<!doctype html>
           var first2 = s.querySelector('.group .item[data-id]');
           if (first2 && first2.dataset && first2.dataset.id) { selectSession(first2.dataset.id); }
         }
+        try { setActiveSessionInList(currentSessionId); } catch(e) {}
       } else if (viewMode === 'time-cwd') {
         var buckets = bucketizeByTime(filtered);
         s.innerHTML = buckets.map(function(b){
@@ -805,24 +993,27 @@ const indexHTML = `<!doctype html>
           var first3 = s.querySelector('.group .item[data-id]');
           if (first3 && first3.dataset && first3.dataset.id) { selectSession(first3.dataset.id); }
         }
+        try { setActiveSessionInList(currentSessionId); } catch(e) {}
       }
     }
     window.addEventListener('load', ()=>{
       try{ viewMode = localStorage.getItem('viewMode') || 'time-cwd'; }catch(e){ viewMode='time-cwd'; }
       var sel = document.getElementById('viewModeSelect');
       if (sel) sel.value = viewMode;
-      const init = JSON.parse(document.getElementById('init-sessions').textContent);
-      sessionsCache = Array.isArray(init) ? init : [];
-      renderSessions(sessionsCache);
-      // On first load, if nothing is selected, open the most recent session
-      try {
-        if (!currentSessionId && Array.isArray(sessionsCache) && sessionsCache.length>0) {
-          selectSession(sessionsCache[0].id);
-        }
-      } catch(e){}
+      loadSessions();
+      // Try to restore last opened session per source after loadSessions completes
+      setTimeout(function(){
+        try{
+          var last = localStorage.getItem('last:'+(currentSource||'codex'));
+          if (last) {
+            // If it exists in the current list, reselect
+            var node = document.querySelector('#sessions .item[data-id="'+CSS.escape(last)+'"]');
+            if (node) selectSession(last);
+          }
+        }catch(e){}
+      }, 150);
     });
   </script>
-  <script type="application/json" id="init-sessions">{{ toJSON .Sessions }}</script>
 </head>
 <body>
   <header>
@@ -840,6 +1031,12 @@ const indexHTML = `<!doctype html>
   <div class="container">
     <div class="sidebar">
       <div id="search-results" class="hidden"></div>
+      <div class="sidebar__controls meta" style="display:flex; gap:6px; align-items:center; border-bottom: 1px solid var(--color-border);">
+        <span>Source</span>
+        <button id="tab-codex" class="btn" onclick="setSource('codex')">Codex</button>
+        <button id="tab-claude" class="btn" onclick="setSource('claude')">Claude</button>
+        <div class="flex-1"></div>
+      </div>
       <div id="sessions"></div>
       <div id="sidebar-controls" class="meta sidebar__controls">
         <span>View</span>

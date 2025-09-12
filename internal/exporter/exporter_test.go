@@ -11,7 +11,7 @@ import (
 
 func buildIdxForExport(t *testing.T) *indexer.Indexer {
     t.Helper()
-    x := indexer.New("/tmp/.codex")
+    x := indexer.New("/tmp/.codex", "")
     now := time.Now().Format(time.RFC3339)
     // Normal messages
     x.IngestForTest("s1", map[string]any{"id":"m1","session_id":"s1","role":"user","content":"hello","ts":now})

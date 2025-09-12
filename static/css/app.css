@@ -76,6 +76,8 @@ header { padding: var(--space-4) var(--space-6); border-bottom: var(--border-wid
 .content { overflow: auto; margin: 0 1em; padding-top: 0.5em;}
 .item { padding: var(--space-4) var(--space-8); border-bottom: var(--border-width) solid var(--color-border-subtle); cursor: pointer; }
 .item:hover { background: var(--color-item-hover); }
+.item.active { background: #eef6ff; box-shadow: inset 3px 0 0 0 #99ccff; }
+.group .item.active { background: #eef6ff; }
 .meta { color: var(--color-muted); font-size: var(--font-size-meta); }
 .msg { padding: var(--space-4) var(--space-8); border-bottom: var(--border-width) solid var(--color-border-subtle); }
 .msg > .meta { display: flex; align-items: center; column-gap: var(--space-3); }

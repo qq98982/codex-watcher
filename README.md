@@ -3,9 +3,11 @@
 ## Overview
 
 - Watches `~/.codex` for changes to `sessions/*.jsonl`.
+- Optionally watches `~/.claude/projects` for Claude Code conversation history (per-project JSONL files).
 - Parses JSONL chat events and exposes a local HTTP API + a minimal UI.
 - Default port: `localhost:7077` (configurable via `PORT`).
 - Default Codex dir: `$HOME/.codex` (override with `CODEX_DIR`).
+- Default Claude dir: `$HOME/.claude/projects` (override with `CLAUDE_DIR`).
 
 ## Screenshot
 
@@ -83,10 +85,10 @@ go run ./cmd/codex-watcher --search_budget_ms 500 --search_max 300
 ## Usage
 
 ```text
-codex-watcher [flags]
-codex-watcher serve [flags]           # same as default
-codex-watcher browse [flags]          # ensure running, then open browser
-codex-watcher start|stop|restart [flags]
+  codex-watcher [flags]
+  codex-watcher serve [flags]           # same as default
+  codex-watcher browse [flags]          # ensure running, then open browser
+  codex-watcher start|stop|restart [flags]
 
 Flags (with env var equivalents)
   --host <host>               Bind address (default 0.0.0.0)
@@ -95,12 +97,16 @@ Flags (with env var equivalents)
     env: PORT
   --codex <dir>               Path to ~/.codex (default $HOME/.codex)
     env: CODEX_DIR
+  --claude <dir>              Path to ~/.claude/projects (default $HOME/.claude/projects)
+    env: CLAUDE_DIR
   --search_budget_ms <ms>     Soft time budget for /api/search (default 350)
   --search_max <n>            Maximum hits returned (default 200)
 
 Examples
   # foreground
   codex-watcher --host 0.0.0.0 --port 7077 --codex "$HOME/.codex"
+  # with Claude support
+  codex-watcher --host 0.0.0.0 --port 7077 --codex "$HOME/.codex" --claude "$HOME/.claude/projects"
 
   # background service (simple)
   codex-watcher start --host 0.0.0.0 --port 7077 --codex "$HOME/.codex"
@@ -116,6 +122,7 @@ Notes
 ### API
 
 - `GET /api/sessions` — list discovered sessions with basic stats.
+  - Supports `?source=codex|claude` and `?project=<name>` filters.
 - `GET /api/messages?session_id=...` — messages for a session (latest 200 by default).
 - `GET /api/stats` — aggregate counters (messages, sessions, roles, models if present).
 - `POST /api/reindex` — trigger full rescan (lightweight for initial setup).

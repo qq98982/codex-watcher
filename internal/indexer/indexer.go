@@ -21,11 +21,13 @@ type Message struct {
     Ts        time.Time              `json:"ts,omitempty"`
     Role      string                 `json:"role,omitempty"`
     Content   string                 `json:"content,omitempty"`
+    Thinking  string                 `json:"thinking,omitempty"`
     Model     string                 `json:"model,omitempty"`
     Type      string                 `json:"type,omitempty"`
     ToolName  string                 `json:"tool_name,omitempty"`
     Raw       map[string]any         `json:"raw,omitempty"`
-    Source    string                 `json:"source"` // history.jsonl or sessions/<file>
+    Source    string                 `json:"source"`   // relative file path
+    Provider  string                 `json:"provider"` // codex|claude
     LineNo    int                    `json:"line_no"`
 }
 
@@ -44,11 +46,14 @@ type Session struct {
     Roles        map[string]int    `json:"roles,omitempty"`
     Tags         []string          `json:"tags,omitempty"`
     Sources      []string          `json:"sources,omitempty"`
+    Provider     string            `json:"provider,omitempty"` // codex|claude
+    Project      string            `json:"project,omitempty"`  // for claude
 }
 
 // Indexer tails JSONL files under ~/.codex and builds an in-memory index.
 type Indexer struct {
-    codexDir string
+    codexDir  string
+    claudeDir string
 
     mu        sync.RWMutex
     sessions  map[string]*Session
@@ -73,9 +78,10 @@ type Stats struct {
     LastScanMs    int            `json:"last_scan_ms,omitempty"`
 }
 
-func New(codexDir string) *Indexer {
+func New(codexDir, claudeDir string) *Indexer {
     return &Indexer{
         codexDir:     codexDir,
+        claudeDir:    claudeDir,
         sessions:     make(map[string]*Session),
         messages:     make(map[string][]*Message),
         positions:    make(map[string]int64),
@@ -111,7 +117,7 @@ func (x *Indexer) Run(ctxDone <-chan struct{}) {
 func (x *Indexer) scanAll() error {
     start := time.Now()
     files := 0
-    // sessions/*.jsonl
+    // Codex: sessions/*.jsonl
     sessionsDir := filepath.Join(x.codexDir, "sessions")
     _ = filepath.WalkDir(sessionsDir, func(path string, d os.DirEntry, err error) error {
         if err != nil {
@@ -125,11 +131,32 @@ func (x *Indexer) scanAll() error {
             if id == "" {
                 id = d.Name()
             }
-            _ = x.tailFile(id, path)
+            _ = x.tailFile("codex", "", id, path)
             files++
         }
         return nil
     })
+    // Claude: <project>/*.jsonl under claudeDir
+    if strings.TrimSpace(x.claudeDir) != "" {
+        entries, _ := os.ReadDir(x.claudeDir)
+        for _, ent := range entries {
+            if !ent.IsDir() { continue }
+            project := ent.Name()
+            projDir := filepath.Join(x.claudeDir, project)
+            _ = filepath.WalkDir(projDir, func(path string, d os.DirEntry, err error) error {
+                if err != nil { return nil }
+                if d == nil || d.IsDir() { return nil }
+                if strings.HasSuffix(strings.ToLower(d.Name()), ".jsonl") {
+                    sid := strings.TrimSuffix(d.Name(), filepath.Ext(d.Name()))
+                    // namespace with provider to avoid collisions
+                    namespaced := "claude:" + project + ":" + sid
+                    _ = x.tailFile("claude", project, namespaced, path)
+                    files++
+                }
+                return nil
+            })
+        }
+    }
     // update observability metrics
     x.mu.Lock()
     x.stats.FilesScanned = files
@@ -138,7 +165,7 @@ func (x *Indexer) scanAll() error {
     return nil
 }
 
-func (x *Indexer) tailFile(sessionID, path string) error {
+func (x *Indexer) tailFile(provider, project, sessionID, path string) error {
     // stat file to capture mod time
     var modTime time.Time
     if fi, err := os.Stat(path); err == nil {
@@ -167,7 +194,7 @@ func (x *Indexer) tailFile(sessionID, path string) error {
         line, err := reader.ReadBytes('\n')
         nBytes += int64(len(line))
         if len(strings.TrimSpace(string(line))) > 0 {
-            x.ingestLine(sessionID, path, string(line))
+            x.ingestLine(provider, project, sessionID, path, string(line))
         }
         if errors.Is(err, io.EOF) {
             break
@@ -190,7 +217,7 @@ func (x *Indexer) tailFile(sessionID, path string) error {
         x.mu.Lock()
         s := x.sessions[sessionID]
         if s == nil {
-            s = &Session{ID: sessionID, Models: map[string]int{}, Roles: map[string]int{}}
+            s = &Session{ID: sessionID, Models: map[string]int{}, Roles: map[string]int{}, Provider: provider, Project: project}
             x.sessions[sessionID] = s
         }
         if modTime.After(s.FileModAt) {
@@ -201,7 +228,7 @@ func (x *Indexer) tailFile(sessionID, path string) error {
     return nil
 }
 
-func (x *Indexer) ingestLine(sessionID, path, line string) {
+func (x *Indexer) ingestLine(provider, project, sessionID, path, line string) {
     var raw map[string]any
     if err := json.Unmarshal([]byte(strings.TrimSpace(line)), &raw); err != nil {
         // ignore bad line but record count
@@ -214,18 +241,50 @@ func (x *Indexer) ingestLine(sessionID, path, line string) {
     // attempt to map common fields
     msg := &Message{
         ID:        stringOr(raw["id"]),
-        SessionID: firstNonEmpty(stringOr(raw["session_id"]), sessionID),
+        SessionID: sessionID,
         Role:      stringOr(raw["role"]),
         Content:   extractText(raw),
         Model:     stringOr(raw["model"]),
         Type:      stringOr(raw["type"]),
         ToolName:  stringOr(raw["tool_name"]),
         Raw:       raw,
-        Source:    relSource(path, x.codexDir),
+        Source:    chooseRelSource(path, provider, x.codexDir, x.claudeDir),
+        Provider:  provider,
     }
 
     if ts, ok := parseTime(raw["timestamp"], raw["ts"], raw["created_at"]); ok {
         msg.Ts = ts
+    }
+
+    // Claude-specific extraction: nested message fields
+    if provider == "claude" {
+        if mobj, ok := raw["message"].(map[string]any); ok && mobj != nil {
+            if msg.Role == "" { msg.Role = stringOr(mobj["role"]) }
+            if msg.Model == "" { msg.Model = stringOr(mobj["model"]) }
+            // Extract content text ("text" parts) and thinking ("thinking" parts)
+            textOut, thinkOut := extractClaudeSegments(mobj)
+            if strings.TrimSpace(textOut) != "" { msg.Content = textOut }
+            if strings.TrimSpace(thinkOut) != "" { msg.Thinking = thinkOut }
+        }
+        // Normalize session id to prefer nested sessionId if present
+        if sid := stringOr(raw["sessionId"]); sid != "" {
+            msg.SessionID = "claude:" + project + ":" + sid
+        }
+        // For summaries, update session title
+        if strings.ToLower(msg.Type) == "summary" {
+            if s := stringOr(raw["summary"]); s != "" {
+                x.mu.Lock()
+                if sess := x.sessions[msg.SessionID]; sess != nil {
+                    sess.Title = trimTitle(s)
+                }
+                x.mu.Unlock()
+            }
+        }
+    } else {
+        // Codex: if raw provides a session_id, prefer it
+        if sid := firstNonEmpty(stringOr(raw["session_id"]), ""); sid != "" {
+            msg.SessionID = sid
+        }
     }
 
     x.mu.Lock()
@@ -243,7 +302,7 @@ func (x *Indexer) ingestLine(sessionID, path, line string) {
     }
     s := x.sessions[sID]
     if s == nil {
-        s = &Session{ID: sID, Models: map[string]int{}, Roles: map[string]int{}}
+        s = &Session{ID: sID, Models: map[string]int{}, Roles: map[string]int{}, Provider: provider, Project: project}
         x.sessions[sID] = s
     }
     // detect and set CWD the first time we see it
@@ -363,7 +422,7 @@ func (x *Indexer) IngestForTest(sessionID string, raw map[string]any) {
     b, _ := json.Marshal(raw)
     // mimic a file path for line numbers and source
     path := "/tmp/.codex/sessions/" + sessionID + ".jsonl"
-    x.ingestLine(sessionID, path, string(b))
+    x.ingestLine("codex", "", sessionID, path, string(b))
 }
 
 // Helpers
@@ -449,6 +508,42 @@ func relSource(path, root string) string {
     return path
 }
 
+// chooseRelSource picks the correct root for relative path computation.
+func chooseRelSource(path, provider, codexRoot, claudeRoot string) string {
+    switch provider {
+    case "claude":
+        if strings.TrimSpace(claudeRoot) != "" {
+            if r, err := filepath.Rel(claudeRoot, path); err == nil { return r }
+        }
+    default:
+        if strings.TrimSpace(codexRoot) != "" {
+            if r, err := filepath.Rel(codexRoot, path); err == nil { return r }
+        }
+    }
+    return path
+}
+
+// extractClaudeSegments returns (text, thinking) extracted from message.content array.
+func extractClaudeSegments(messageObj map[string]any) (string, string) {
+    var textParts []string
+    var thinkParts []string
+    if messageObj == nil { return "", "" }
+    arr, _ := messageObj["content"].([]any)
+    for _, el := range arr {
+        m, ok := el.(map[string]any)
+        if !ok || m == nil { continue }
+        t, _ := m["type"].(string)
+        switch strings.ToLower(t) {
+        case "text", "input_text", "output_text":
+            if s, _ := m["text"].(string); strings.TrimSpace(s) != "" { textParts = append(textParts, s) }
+            if s, _ := m["content"].(string); strings.TrimSpace(s) != "" { textParts = append(textParts, s) }
+        case "thinking":
+            if s, _ := m["thinking"].(string); strings.TrimSpace(s) != "" { thinkParts = append(thinkParts, s) }
+        }
+    }
+    return strings.Join(textParts, "\n\n"), strings.Join(thinkParts, "\n\n")
+}
+
 func firstNonEmpty(a, b string) string {
     if strings.TrimSpace(a) != "" {
         return a
@@ -473,6 +568,33 @@ func trimTitle(s string) string {
 func extractText(raw map[string]any) string {
     if raw == nil {
         return ""
+    }
+    // Claude nested message.content segments
+    if m, ok := raw["message"].(map[string]any); ok && m != nil {
+        if arr, ok := m["content"].([]any); ok {
+            var b strings.Builder
+            for _, el := range arr {
+                if mm, ok := el.(map[string]any); ok && mm != nil {
+                    t, _ := mm["type"].(string)
+                    if t == "text" || t == "input_text" || t == "output_text" {
+                        if tx, _ := mm["text"].(string); strings.TrimSpace(tx) != "" {
+                            if b.Len() > 0 { b.WriteString("\n\n") }
+                            b.WriteString(tx)
+                        } else if cx, _ := mm["content"].(string); strings.TrimSpace(cx) != "" {
+                            if b.Len() > 0 { b.WriteString("\n\n") }
+                            b.WriteString(cx)
+                        }
+                    } else if t == "thinking" {
+                        // include thinking in content for search discoverability
+                        if th, _ := mm["thinking"].(string); strings.TrimSpace(th) != "" {
+                            if b.Len() > 0 { b.WriteString("\n\n") }
+                            b.WriteString(th)
+                        }
+                    }
+                }
+            }
+            if b.Len() > 0 { return b.String() }
+        }
     }
     if v, ok := raw["content"]; ok {
         if s, ok := v.(string); ok {
