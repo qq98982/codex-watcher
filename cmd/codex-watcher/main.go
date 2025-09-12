@@ -123,6 +123,17 @@ func runServer(cfg config) {
     // Prepare indexer
     idx := indexer.New(cfg.CodexDir, cfg.ClaudeDir)
 
+    // Sanity checks for expected directories
+    codexSessions := filepath.Join(cfg.CodexDir, "sessions")
+    if fi, err := os.Stat(codexSessions); err != nil || !fi.IsDir() {
+        log.Printf("warning: Codex sessions directory not found: %s — no Codex messages will appear until it exists.", codexSessions)
+    }
+    if cfg.ClaudeDir == "" {
+        log.Printf("info: CLAUDE_DIR not set; Claude support is disabled.")
+    } else if fi, err := os.Stat(cfg.ClaudeDir); err != nil || !fi.IsDir() {
+        log.Printf("info: Claude projects directory not found: %s — the Claude tab will be empty until it exists.", cfg.ClaudeDir)
+    }
+
     // Kick off background polling watcher
     ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
     defer cancel()
