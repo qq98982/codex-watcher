@@ -250,6 +250,7 @@ const indexHTML = `<!doctype html>
       var e = document.getElementById(id+':expanded');
       var a = document.getElementById(id+':arrow');
       var a2 = document.getElementById(id+':arrow2');
+      var a0 = document.getElementById(id+':arrow0');
       if (!c || !e) return;
       var isCollapsedShown = !c.classList.contains('hidden');
       if (isCollapsedShown) { c.classList.add('hidden'); e.classList.remove('hidden'); }
@@ -257,6 +258,7 @@ const indexHTML = `<!doctype html>
       var sym = isCollapsedShown ? '▾' : '▸';
       if (a) a.textContent = sym;
       if (a2) a2.textContent = sym;
+      if (a0) a0.textContent = sym;
       try { hljs.highlightAll(); } catch(e) {}
     }
 
@@ -418,6 +420,27 @@ const indexHTML = `<!doctype html>
         var toolName = capFirst(toolNameRaw);
         var pillLabel = isReasoning ? 'Assistant Thinking' : (isFuncCall ? ('Tool: ' + toolName) : (isFuncOut ? ('Tool Output' + ((m.raw && m.raw.name) ? (': ' + capFirst(m.raw.name)) : '')) : (role || 'message')));
         var id2 = null;
+        // Detect first Claude tool result id to place header arrow
+        var firstToggleId = null;
+        try {
+          if (m && m.raw && m.raw.message && Array.isArray(m.raw.message.content)) {
+            for (var i=0;i<m.raw.message.content.length;i++){
+              var part = m.raw.message.content[i];
+              if (!part || typeof part !== 'object') continue;
+              if (part.type === 'tool_result') {
+                var out = '';
+                if (typeof part.content === 'string') out = part.content;
+                else if (Array.isArray(part.content)) {
+                  out = part.content.map(function(p){ if(typeof p==='string') return p; if(p && typeof p==='object' && typeof p.text==='string') return p.text; return ''; }).filter(Boolean).join('\n');
+                } else if (part.content && typeof part.content === 'object') {
+                  try{ out = JSON.stringify(part.content); }catch(e){}
+                }
+                var hasOutOrError = !!(part.is_error || (out && String(out).trim()));
+                if (hasOutOrError && part.tool_use_id) { firstToggleId = 'tool-' + part.tool_use_id; break; }
+              }
+            }
+          }
+        } catch(e){}
         var html = renderContent(m);
         if (isFuncCall || isFuncOut) {
           id2 = 'tool-' + (m.id || Math.random().toString(36).slice(2));
@@ -447,7 +470,10 @@ const indexHTML = `<!doctype html>
         var arrow = '';
         if (id2) {
           var sym = collapseTools ? '▸' : '▾';
-          arrow = ' <span id="'+id2+':arrow" class="pill clickable" onclick="toggleTool(\''+id2+'\')">' + sym + '</span>';
+          arrow = ' <span id="'+id2+':arrow" class="pill clickable" data-toggle="'+id2+'">' + sym + '</span>';
+        } else if (firstToggleId) {
+          var sym2 = collapseTools ? '▸' : '▾';
+          arrow = ' <span id="'+firstToggleId+':arrow0" class="pill clickable" data-toggle="'+firstToggleId+'">' + sym2 + '</span>';
         }
         var anchorId = (m.id && String(m.id).trim() !== '') ? ('msg-' + m.id) : ('msg-L' + (m.line_no || 0));
         var copyBtn = '<span id="'+('copy:'+anchorId).replace(/"/g,'&quot;')+'" class="pill clickable" title="Copy markdown" onclick="copyMessage('+ix+', \''+anchorId.replace(/'/g,"\\'")+'\')">⧉</span>';
@@ -567,14 +593,12 @@ const indexHTML = `<!doctype html>
           }
           // Only add a toggle block when there is a meaningful body (result or error)
           if (hasOutOrError && (body && body.trim())) {
-            var arrowSym = collapseTools ? '▸' : '▾';
-          var collapsedDiv = '<div id="'+id2+':collapsed" class="meta mono' + (collapseTools? '' : ' hidden') + '">'
-            + '<span id="'+id2+':arrow" class="pill clickable" data-toggle="'+id2+'">'+arrowSym+'</span> '
-            + '<span class="clickable" data-toggle="'+id2+'">' + escapeHTML(truncate(oneLine(summary), 140)) + '</span>'
-            + '</div>';
-          var expandedDiv = '<div id="'+id2+':expanded" class="' + (collapseTools? 'hidden' : '') + '">'
-            + '<div class="meta mono"><span id="'+id2+':arrow2" class="pill clickable" data-toggle="'+id2+'">▾</span> ' + escapeHTML(truncate(oneLine(summary), 140)) + '</div>'
-            + body + '</div>';
+            var collapsedDiv = '<div id="'+id2+':collapsed" class="meta mono' + (collapseTools? '' : ' hidden') + '">'
+              + '<span class="clickable" data-toggle="'+id2+'">' + escapeHTML(truncate(oneLine(summary), 140)) + '</span>'
+              + '</div>';
+            var expandedDiv = '<div id="'+id2+':expanded" class="' + (collapseTools? 'hidden' : '') + '">'
+              + '<div class="meta mono"><span id="'+id2+':arrow2" class="pill clickable" data-toggle="'+id2+'">▾</span> ' + escapeHTML(truncate(oneLine(summary), 140)) + '</div>'
+              + body + '</div>';
             htmlBuilt += '<div class="mt-1">' + collapsedDiv + expandedDiv + '</div>';
             hasMeaningful = true;
           } else {
