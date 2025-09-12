@@ -259,6 +259,21 @@ const indexHTML = `<!doctype html>
       if (a2) a2.textContent = sym;
       try { hljs.highlightAll(); } catch(e) {}
     }
+
+    // Event delegation for sanitized content
+    function attachMessageDelegates(){
+      var container = document.getElementById('messages');
+      if (!container || container.__delegatesBound) return;
+      container.addEventListener('click', function(ev){
+        var t = ev.target;
+        if (!t) return;
+        var node = t.closest && t.closest('[data-toggle]');
+        if (node) { var id = node.getAttribute('data-toggle'); if (id) { toggleTool(id); return; } }
+        var node2 = t.closest && t.closest('[data-output-toggle]');
+        if (node2) { var id2 = node2.getAttribute('data-output-toggle'); if (id2) { toggleOutput(id2); return; } }
+      }, false);
+      container.__delegatesBound = true;
+    }
     // Clipboard helpers and per-session message cache
     async function copyToClipboard(text){
       try {
@@ -445,6 +460,7 @@ const indexHTML = `<!doctype html>
         el.innerHTML = '<div class="meta empty-hint">此会话没有可显示的文本</div>';
       }
       try { hljs.highlightAll(); } catch(e) {}
+      attachMessageDelegates();
       // scroll to a pending focus target if requested
       try {
         if (window.pendingFocus && window.pendingFocus.sessionId === id) {
@@ -540,25 +556,25 @@ const indexHTML = `<!doctype html>
           if (out && out.trim()) {
             var MAX = 5000; var id = id2 + ':out';
             var full = out; var trunc = out.length>MAX? out.slice(0,MAX)+'\n... (truncated)' : out;
-            if (full.length>MAX) {
-              body += '<div><div class="meta"><strong>Result</strong> · <button id="'+id+':btn" class="btn" onclick="toggleOutput(\''+id+'\')">Show full</button></div>'
+          if (full.length>MAX) {
+            body += '<div><div class="meta"><strong>Result</strong> · <button id="'+id+':btn" class="btn" data-output-toggle="'+id+'">Show full</button></div>'
                 + '<pre id="'+id+':trunc" class="mt-1">' + escapeHTML(trunc) + '</pre>'
                 + '<pre id="'+id+':full" class="hidden mt-1">' + escapeHTML(full) + '</pre>'
                 + '</div>';
-            } else {
+          } else {
               body += '<div><div class="meta"><strong>Result</strong></div><pre class="mt-1">' + escapeHTML(full) + '</pre></div>';
             }
           }
           // Only add a toggle block when there is a meaningful body (result or error)
           if (hasOutOrError && (body && body.trim())) {
             var arrowSym = collapseTools ? '▸' : '▾';
-            var collapsedDiv = '<div id="'+id2+':collapsed" class="meta mono' + (collapseTools? '' : ' hidden') + '">'
-              + '<span id="'+id2+':arrow" class="pill clickable" onclick="toggleTool(\''+id2+'\')">'+arrowSym+'</span> '
-              + '<span class="clickable" onclick="toggleTool(\''+id2+'\')">' + escapeHTML(truncate(oneLine(summary), 140)) + '</span>'
-              + '</div>';
-            var expandedDiv = '<div id="'+id2+':expanded" class="' + (collapseTools? 'hidden' : '') + '">'
-              + '<div class="meta mono"><span id="'+id2+':arrow2" class="pill clickable" onclick="toggleTool(\''+id2+'\')">▾</span> ' + escapeHTML(truncate(oneLine(summary), 140)) + '</div>'
-              + body + '</div>';
+          var collapsedDiv = '<div id="'+id2+':collapsed" class="meta mono' + (collapseTools? '' : ' hidden') + '">'
+            + '<span id="'+id2+':arrow" class="pill clickable" data-toggle="'+id2+'">'+arrowSym+'</span> '
+            + '<span class="clickable" data-toggle="'+id2+'">' + escapeHTML(truncate(oneLine(summary), 140)) + '</span>'
+            + '</div>';
+          var expandedDiv = '<div id="'+id2+':expanded" class="' + (collapseTools? 'hidden' : '') + '">'
+            + '<div class="meta mono"><span id="'+id2+':arrow2" class="pill clickable" data-toggle="'+id2+'">▾</span> ' + escapeHTML(truncate(oneLine(summary), 140)) + '</div>'
+            + body + '</div>';
             htmlBuilt += '<div class="mt-1">' + collapsedDiv + expandedDiv + '</div>';
             hasMeaningful = true;
           } else {
@@ -603,7 +619,7 @@ const indexHTML = `<!doctype html>
           var full = body;
           var trunc = body.length>MAX ? body.slice(0,MAX) + '\n... (truncated)' : body;
           if (full.length>MAX) {
-            return '<div><div class="meta"><strong>' + label + '</strong> · <button id="'+id+':btn" class="btn" onclick="toggleOutput(\''+id+'\')">Show full</button></div>'
+            return '<div><div class="meta"><strong>' + label + '</strong> · <button id="'+id+':btn" class="btn" data-output-toggle="'+id+'">Show full</button></div>'
               + '<pre id="'+id+':trunc" class="mt-1">' + escapeHTML(trunc) + '</pre>'
               + '<pre id="'+id+':full" class="hidden mt-1">' + escapeHTML(full) + '</pre>'
               + '</div>';
