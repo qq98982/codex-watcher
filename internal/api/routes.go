@@ -242,14 +242,13 @@ const indexHTML = `<!doctype html>
       var isTruncShown = !t.classList.contains('hidden');
       if (isTruncShown) { t.classList.add('hidden'); f.classList.remove('hidden'); }
       else { t.classList.remove('hidden'); f.classList.add('hidden'); }
-      if (b) b.textContent = isTruncShown ? 'Show less' : 'Show full';
+      if (b) b.textContent = isTruncShown ? 'Show less' : 'Show more';
       try { hljs.highlightAll(); } catch(e) {}
     }
     function toggleTool(id){
       var c = document.getElementById(id+':collapsed');
       var e = document.getElementById(id+':expanded');
       var a = document.getElementById(id+':arrow');
-      var a2 = document.getElementById(id+':arrow2');
       var a0 = document.getElementById(id+':arrow0');
       if (!c || !e) return;
       var isCollapsedShown = !c.classList.contains('hidden');
@@ -257,7 +256,6 @@ const indexHTML = `<!doctype html>
       else { c.classList.remove('hidden'); e.classList.add('hidden'); }
       var sym = isCollapsedShown ? '▾' : '▸';
       if (a) a.textContent = sym;
-      if (a2) a2.textContent = sym;
       if (a0) a0.textContent = sym;
       try { hljs.highlightAll(); } catch(e) {}
     }
@@ -270,9 +268,9 @@ const indexHTML = `<!doctype html>
         var t = ev.target;
         if (!t) return;
         var node = t.closest && t.closest('[data-toggle]');
-        if (node) { var id = node.getAttribute('data-toggle'); if (id) { toggleTool(id); return; } }
+        if (node) { var id = node.getAttribute('data-toggle'); if (id) { try{ ev.preventDefault(); }catch(e){} toggleTool(id); return; } }
         var node2 = t.closest && t.closest('[data-output-toggle]');
-        if (node2) { var id2 = node2.getAttribute('data-output-toggle'); if (id2) { toggleOutput(id2); return; } }
+        if (node2) { var id2 = node2.getAttribute('data-output-toggle'); if (id2) { try{ ev.preventDefault(); }catch(e){} toggleOutput(id2); return; } }
       }, false);
       container.__delegatesBound = true;
     }
@@ -593,10 +591,10 @@ const indexHTML = `<!doctype html>
           var summary = (t.name || 'tool') + (argsSummary? (' · ' + argsSummary) : '') + (t.is_error? ' → error' : (out? ' → ok' : ''));
           var body = '';
           if (out && out.trim()) {
-            var MAX = 5000; var id = id2 + ':out';
+            var MAX = 500; var id = id2 + ':out';
             var full = out; var trunc = out.length>MAX? out.slice(0,MAX)+'\n... (truncated)' : out;
           if (full.length>MAX) {
-            body += '<div><div class="meta"><strong>Result</strong> · <button id="'+id+':btn" class="btn" data-output-toggle="'+id+'">Show full</button></div>'
+            body += '<div><div class="meta"><strong>Result</strong> · <a id="'+id+':btn" class="back-link" href="#" data-output-toggle="'+id+'">Show more</a></div>'
                 + '<pre id="'+id+':trunc" class="mt-1">' + escapeHTML(trunc) + '</pre>'
                 + '<pre id="'+id+':full" class="hidden mt-1">' + escapeHTML(full) + '</pre>'
                 + '</div>';
@@ -610,7 +608,7 @@ const indexHTML = `<!doctype html>
               + '<span class="clickable" data-toggle="'+id2+'">' + escapeHTML(truncate(oneLine(summary), 140)) + '</span>'
               + '</div>';
             var expandedDiv = '<div id="'+id2+':expanded" class="' + (collapseTools? 'hidden' : '') + '">'
-              + '<div class="meta mono"><span id="'+id2+':arrow2" class="pill clickable" data-toggle="'+id2+'">▾</span> ' + escapeHTML(truncate(oneLine(summary), 140)) + '</div>'
+              + '<div class="meta mono"><span class="clickable" data-toggle="'+id2+'">' + escapeHTML(truncate(oneLine(summary), 140)) + '</span></div>'
               + body + '</div>';
             htmlBuilt += '<div class="mt-1">' + collapsedDiv + expandedDiv + '</div>';
             hasMeaningful = true;
@@ -649,14 +647,14 @@ const indexHTML = `<!doctype html>
           if (typeof out.stderr === 'string') stderrOut = out.stderr;
           if (!textOut && !stderrOut) textOut = tryString(out);
         }
-        var MAX = 5000;
+        var MAX = 500;
         var id = 'out-' + (m.id || Math.random().toString(36).slice(2));
         function section(label, body){
           if (!body) return '';
           var full = body;
           var trunc = body.length>MAX ? body.slice(0,MAX) + '\n... (truncated)' : body;
           if (full.length>MAX) {
-            return '<div><div class="meta"><strong>' + label + '</strong> · <button id="'+id+':btn" class="btn" data-output-toggle="'+id+'">Show full</button></div>'
+            return '<div><div class="meta"><strong>' + label + '</strong> · <a id="'+id+':btn" href="#" class="back-link" data-output-toggle="'+id+'">Show more</a></div>'
               + '<pre id="'+id+':trunc" class="mt-1">' + escapeHTML(trunc) + '</pre>'
               + '<pre id="'+id+':full" class="hidden mt-1">' + escapeHTML(full) + '</pre>'
               + '</div>';
