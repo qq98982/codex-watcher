@@ -501,14 +501,17 @@ const indexHTML = `<!doctype html>
           }
         });
         // Thinking block first
+        var hasMeaningful = false;
         if (thinkingParts.length) {
           var th = thinkingParts.join('\n\n');
           var thTrunc = th.length>32000 ? th.slice(0,32000) + '\n... (truncated)' : th;
           htmlBuilt += '<div><div class="meta"><strong>Thinking</strong></div>'
                      + '<pre class="mt-1">' + escapeHTML(thTrunc) + '</pre>'
                      + '</div>';
+          hasMeaningful = true;
         }
         md = textParts.join('\n\n');
+        if (md && md.trim()) { hasMeaningful = true; }
         // Tool blocks collapsed
         Object.keys(toolsMap).forEach(function(key){
           var t = toolsMap[key] || {};
@@ -531,12 +534,10 @@ const indexHTML = `<!doctype html>
           } else if (t.result && typeof t.result === 'object') {
             try{ out = JSON.stringify(t.result, null, 2); }catch(e){ out = '' }
           }
+          var hasOutOrError = !!(t.is_error || (out && out.trim()))
           var summary = (t.name || 'tool') + (argsSummary? (' · ' + argsSummary) : '') + (t.is_error? ' → error' : (out? ' → ok' : ''));
           var body = '';
-          if (args && typeof args === 'object') {
-            body += '<div><div class="meta"><strong>Args</strong></div><pre class="mt-1">' + escapeHTML(tryString(args)) + '</pre></div>';
-          }
-          if (out) {
+          if (out && out.trim()) {
             var MAX = 5000; var id = id2 + ':out';
             var full = out; var trunc = out.length>MAX? out.slice(0,MAX)+'\n... (truncated)' : out;
             if (full.length>MAX) {
@@ -548,8 +549,8 @@ const indexHTML = `<!doctype html>
               body += '<div><div class="meta"><strong>Result</strong></div><pre class="mt-1">' + escapeHTML(full) + '</pre></div>';
             }
           }
-          var hasBody = !!(body && body.trim());
-          if (hasBody) {
+          // Only add a toggle block when there is a meaningful body (result or error)
+          if (hasOutOrError && (body && body.trim())) {
             var arrowSym = collapseTools ? '▸' : '▾';
             var collapsedDiv = '<div id="'+id2+':collapsed" class="meta mono' + (collapseTools? '' : ' hidden') + '">'
               + '<span id="'+id2+':arrow" class="pill clickable" onclick="toggleTool(\''+id2+'\')">'+arrowSym+'</span> '
@@ -559,11 +560,13 @@ const indexHTML = `<!doctype html>
               + '<div class="meta mono"><span id="'+id2+':arrow2" class="pill clickable" onclick="toggleTool(\''+id2+'\')">▾</span> ' + escapeHTML(truncate(oneLine(summary), 140)) + '</div>'
               + body + '</div>';
             htmlBuilt += '<div class="mt-1">' + collapsedDiv + expandedDiv + '</div>';
+            hasMeaningful = true;
           } else {
-            // No detailed body; render a plain one-liner without a toggle
-            htmlBuilt += '<div class="meta mono mt-1">' + escapeHTML(truncate(oneLine(summary), 160)) + '</div>';
+            // No result and no error → skip rendering this tool block entirely
           }
         });
+        // If nothing meaningful, return empty to let caller skip rendering the message
+        if (!hasMeaningful) { return ''; }
       } else if (m && m.raw && (m.raw.type === 'function_call' || m.type === 'function_call')) {
         // Render function call arguments; prefer commands for shell
         var name = (m.raw && m.raw.name) || '';
