@@ -419,6 +419,11 @@ const indexHTML = `<!doctype html>
             else if (out && typeof out === 'object') { if (typeof out.output==='string') textOut=out.output; if(typeof out.stderr==='string') stderrOut=out.stderr; }
             var parts=[]; if (textOut) parts.push('stdout'); if (stderrOut) parts.push('stderr'); summary = parts.length? ('output: ' + parts.join(', ')) : 'output';
           }
+          var hasBody = !!(html && html.trim());
+          if (!hasBody) {
+            // skip rendering empty tool-only messages entirely
+            return '';
+          }
           var collapsedDiv = '<div id="'+id2+':collapsed" class="meta mono' + (collapseTools? '' : ' hidden') + '"><p class="mt-1 ellipsis">' + escapeHTML(truncate(oneLine(summary), 140)) + '</p></div>';
           var expandedDiv = '<div id="'+id2+':expanded" class="' + (collapseTools? 'hidden' : '') + '">' + html + '</div>';
           html = collapsedDiv + expandedDiv;
@@ -543,15 +548,21 @@ const indexHTML = `<!doctype html>
               body += '<div><div class="meta"><strong>Result</strong></div><pre class="mt-1">' + escapeHTML(full) + '</pre></div>';
             }
           }
-          var arrowSym = collapseTools ? '▸' : '▾';
-          var collapsedDiv = '<div id="'+id2+':collapsed" class="meta mono' + (collapseTools? '' : ' hidden') + '">'
-            + '<span id="'+id2+':arrow" class="pill clickable" onclick="toggleTool(\''+id2+'\')">'+arrowSym+'</span> '
-            + '<span class="clickable" onclick="toggleTool(\''+id2+'\')">' + escapeHTML(truncate(oneLine(summary), 140)) + '</span>'
-            + '</div>';
-          var expandedDiv = '<div id="'+id2+':expanded" class="' + (collapseTools? 'hidden' : '') + '">'
-            + '<div class="meta mono"><span id="'+id2+':arrow2" class="pill clickable" onclick="toggleTool(\''+id2+'\')">▾</span> ' + escapeHTML(truncate(oneLine(summary), 140)) + '</div>'
-            + body + '</div>';
-          htmlBuilt += '<div class="mt-1">' + collapsedDiv + expandedDiv + '</div>';
+          var hasBody = !!(body && body.trim());
+          if (hasBody) {
+            var arrowSym = collapseTools ? '▸' : '▾';
+            var collapsedDiv = '<div id="'+id2+':collapsed" class="meta mono' + (collapseTools? '' : ' hidden') + '">'
+              + '<span id="'+id2+':arrow" class="pill clickable" onclick="toggleTool(\''+id2+'\')">'+arrowSym+'</span> '
+              + '<span class="clickable" onclick="toggleTool(\''+id2+'\')">' + escapeHTML(truncate(oneLine(summary), 140)) + '</span>'
+              + '</div>';
+            var expandedDiv = '<div id="'+id2+':expanded" class="' + (collapseTools? 'hidden' : '') + '">'
+              + '<div class="meta mono"><span id="'+id2+':arrow2" class="pill clickable" onclick="toggleTool(\''+id2+'\')">▾</span> ' + escapeHTML(truncate(oneLine(summary), 140)) + '</div>'
+              + body + '</div>';
+            htmlBuilt += '<div class="mt-1">' + collapsedDiv + expandedDiv + '</div>';
+          } else {
+            // No detailed body; render a plain one-liner without a toggle
+            htmlBuilt += '<div class="meta mono mt-1">' + escapeHTML(truncate(oneLine(summary), 160)) + '</div>';
+          }
         });
       } else if (m && m.raw && (m.raw.type === 'function_call' || m.type === 'function_call')) {
         // Render function call arguments; prefer commands for shell
