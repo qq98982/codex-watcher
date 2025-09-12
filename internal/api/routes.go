@@ -487,6 +487,8 @@ const indexHTML = `<!doctype html>
       }
       try { hljs.highlightAll(); } catch(e) {}
       attachMessageDelegates();
+      // Mark the selected session in the sidebar list
+      try { setActiveSessionInList(id); } catch(e) {}
       // scroll to a pending focus target if requested
       try {
         if (window.pendingFocus && window.pendingFocus.sessionId === id) {
@@ -503,6 +505,16 @@ const indexHTML = `<!doctype html>
           window.pendingFocus = null;
         }
       } catch(e) {}
+    }
+
+    function setActiveSessionInList(id){
+      var nodes = document.querySelectorAll('#sessions .item[data-id]');
+      for (var i=0;i<nodes.length;i++){
+        var n = nodes[i];
+        if (!n || !n.dataset) continue;
+        if (n.dataset.id === id) n.classList.add('active');
+        else n.classList.remove('active');
+      }
     }
 
     function tryString(v){ if(typeof v==='string') return v; try{ return JSON.stringify(v, null, 2)}catch(e){return ''}}
