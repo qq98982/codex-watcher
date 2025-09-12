@@ -404,6 +404,7 @@ const indexHTML = `<!doctype html>
     let messagesCache = [];
     async function selectSession(id) {
       currentSessionId = id;
+      try{ localStorage.setItem('last:'+ (currentSource||'codex'), id); }catch(e){}
       const res = await fetch('/api/messages?session_id=' + encodeURIComponent(id) + '&limit=500');
       const data = await res.json();
       messagesCache = data.slice();
@@ -918,6 +919,8 @@ const indexHTML = `<!doctype html>
           var first = s.querySelector('.item');
           if (first && first.dataset && first.dataset.id) { selectSession(first.dataset.id); }
         }
+        // re-apply active highlight after render
+        try { setActiveSessionInList(currentSessionId); } catch(e) {}
       } else if (viewMode === 'cwd-time') {
         var groups = groupByCWD(filtered);
         s.innerHTML = groups.map(function(g){
@@ -947,6 +950,7 @@ const indexHTML = `<!doctype html>
           var first2 = s.querySelector('.group .item[data-id]');
           if (first2 && first2.dataset && first2.dataset.id) { selectSession(first2.dataset.id); }
         }
+        try { setActiveSessionInList(currentSessionId); } catch(e) {}
       } else if (viewMode === 'time-cwd') {
         var buckets = bucketizeByTime(filtered);
         s.innerHTML = buckets.map(function(b){
@@ -989,6 +993,7 @@ const indexHTML = `<!doctype html>
           var first3 = s.querySelector('.group .item[data-id]');
           if (first3 && first3.dataset && first3.dataset.id) { selectSession(first3.dataset.id); }
         }
+        try { setActiveSessionInList(currentSessionId); } catch(e) {}
       }
     }
     window.addEventListener('load', ()=>{
@@ -996,6 +1001,17 @@ const indexHTML = `<!doctype html>
       var sel = document.getElementById('viewModeSelect');
       if (sel) sel.value = viewMode;
       loadSessions();
+      // Try to restore last opened session per source after loadSessions completes
+      setTimeout(function(){
+        try{
+          var last = localStorage.getItem('last:'+(currentSource||'codex'));
+          if (last) {
+            // If it exists in the current list, reselect
+            var node = document.querySelector('#sessions .item[data-id="'+CSS.escape(last)+'"]');
+            if (node) selectSession(last);
+          }
+        }catch(e){}
+      }, 150);
     });
   </script>
 </head>
