@@ -322,7 +322,10 @@ const indexHTML = `<!doctype html>
           cwdPath = '~' + cwdPath.slice(idx);
         }
       }
-      return 'cd ' + shQuote(cwdPath) + ' && ' + cmd;
+      // Use double quotes for paths to allow tilde expansion (single quotes treat ~ as literal)
+      // Escape any double quotes and backslashes in the path
+      var escapedPath = cwdPath.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+      return 'cd "' + escapedPath + '" && ' + cmd;
     }
 
     // Copy session command to clipboard with visual feedback
