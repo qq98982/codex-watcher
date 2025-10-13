@@ -297,6 +297,49 @@ const indexHTML = `<!doctype html>
       } catch(e){ return false; }
     }
 
+    // Build command string for resuming a session
+    function buildSessionCommand(sessionId, cwd, provider){
+      if (!sessionId || !cwd) return '';
+      // Extract short ID from full session ID
+      // For Claude: "claude:-Users-...:7d4cbd61" → "7d4cbd61"
+      // For Codex: usually just the session ID itself
+      var shortId = sessionId;
+      if (provider === 'claude') {
+        var parts = sessionId.split(':');
+        if (parts.length >= 3) {
+          shortId = parts[parts.length - 1];
+        }
+      }
+      // Build command based on provider
+      var cmd = provider === 'claude'
+        ? 'claude -r ' + shortId
+        : 'codex resume ' + shortId;
+      // Replace /Users/<username> with ~ in cwd for shorter command
+      var cwdPath = cwd;
+      if (cwdPath.indexOf('/Users/') === 0) {
+        var idx = cwdPath.indexOf('/', 7);
+        if (idx > 0) {
+          cwdPath = '~' + cwdPath.slice(idx);
+        }
+      }
+      return 'cd ' + shQuote(cwdPath) + ' && ' + cmd;
+    }
+
+    // Copy session command to clipboard with visual feedback
+    async function copySessionCommand(sessionId, cwd, provider, elementId){
+      try {
+        var cmd = buildSessionCommand(sessionId, cwd, provider);
+        if (!cmd) return;
+        var ok = await copyToClipboard(cmd);
+        var el = document.getElementById(elementId);
+        if (el) {
+          var old = el.textContent;
+          el.textContent = ok ? '✓' : '✗';
+          setTimeout(function(){ try{ el.textContent = old; }catch(e){} }, 1000);
+        }
+      } catch(e){}
+    }
+
     // Source switching (Codex | Claude)
     let currentSource = (function(){ try{ return localStorage.getItem('source') || 'codex'; }catch(e){ return 'codex'; } })();
     function setSource(src){
@@ -908,8 +951,10 @@ const indexHTML = `<!doctype html>
         s.innerHTML = filtered.map(function(it){
           var pills = Object.keys(it.models||{}).map(function(m){ return '<span class="pill">'+m+'</span>'; }).join('');
           var meta = fmtStartCountDur(it);
+          var copyBtnId = 'copy-cmd-' + (it.id||'').replace(/[^a-zA-Z0-9-]/g, '-');
+          var copyBtn = (it.cwd && it.provider === 'claude') ? ('<span id="'+copyBtnId+'" class="pill clickable ml-1" title="Copy resume command" onclick="event.stopPropagation(); copySessionCommand(\''+it.id.replace(/'/g,"\\'")+'\', \''+it.cwd.replace(/'/g,"\\'")+'\', \''+it.provider+'\', \''+copyBtnId+'\'); return false;">⏯</span>') : '';
           return '<div class="item" data-id="' + it.id + '" onclick="selectSession(\'' + it.id + '\')">'
-            + '<div class="meta">' + meta + '</div>'
+            + '<div class="meta">' + meta + copyBtn + '</div>'
             + '<div class="meta">' + pills + '</div>'
             + '</div>';
         }).join('');
@@ -932,8 +977,10 @@ const indexHTML = `<!doctype html>
             sessionsHTML = g.items.map(function(it){
               var pills = Object.keys(it.models||{}).map(function(m){ return '<span class="pill">'+m+'</span>'; }).join('');
               var meta = fmtStartCountDur(it);
+              var copyBtnId = 'copy-cmd-' + (it.id||'').replace(/[^a-zA-Z0-9-]/g, '-');
+              var copyBtn = (it.cwd && it.provider === 'claude') ? ('<span id="'+copyBtnId+'" class="pill clickable ml-1" title="Copy resume command" onclick="event.stopPropagation(); copySessionCommand(\''+it.id.replace(/'/g,"\\'")+'\', \''+it.cwd.replace(/'/g,"\\'")+'\', \''+it.provider+'\', \''+copyBtnId+'\'); return false;">⏯</span>') : '';
               return '<div class="item" data-id="' + it.id + '" onclick="selectSession(\'' + it.id + '\')">'
-                + '<div class="meta">' + meta + '</div>'
+                + '<div class="meta">' + meta + copyBtn + '</div>'
                 + '<div class="meta">' + pills + '</div>'
                 + '</div>';
             }).join('');
@@ -969,8 +1016,10 @@ const indexHTML = `<!doctype html>
                 sessionsHTML = g.items.map(function(it){
                   var pills = Object.keys(it.models||{}).map(function(m){ return '<span class="pill">'+m+'</span>'; }).join('');
                   var meta = fmtStartCountDur(it);
+                  var copyBtnId = 'copy-cmd-' + (it.id||'').replace(/[^a-zA-Z0-9-]/g, '-');
+                  var copyBtn = (it.cwd && it.provider === 'claude') ? ('<span id="'+copyBtnId+'" class="pill clickable ml-1" title="Copy resume command" onclick="event.stopPropagation(); copySessionCommand(\''+it.id.replace(/'/g,"\\'")+'\', \''+it.cwd.replace(/'/g,"\\'")+'\', \''+it.provider+'\', \''+copyBtnId+'\'); return false;">⏯</span>') : '';
                   return '<div class="item" data-id="' + it.id + '" onclick="selectSession(\'' + it.id + '\')">'
-                    + '<div class="meta">' + meta + '</div>'
+                    + '<div class="meta">' + meta + copyBtn + '</div>'
                     + '<div class="meta">' + pills + '</div>'
                     + '</div>';
                 }).join('');
