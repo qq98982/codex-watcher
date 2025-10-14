@@ -95,6 +95,43 @@ func AttachRoutes(mux *http.ServeMux, idx *indexer.Indexer) {
         writeJSON(w, 200, map[string]any{"ok": true})
     })
 
+    // Delete session
+    mux.HandleFunc("/api/sessions/delete", func(w http.ResponseWriter, r *http.Request) {
+        if r.Method != http.MethodPost && r.Method != http.MethodDelete {
+            w.WriteHeader(405)
+            return
+        }
+        sessionID := r.URL.Query().Get("session_id")
+        if sessionID == "" {
+            writeJSON(w, 400, map[string]any{"error": "missing session_id"})
+            return
+        }
+        if err := idx.DeleteSession(sessionID); err != nil {
+            writeJSON(w, 500, map[string]any{"error": err.Error()})
+            return
+        }
+        writeJSON(w, 200, map[string]any{"ok": true, "deleted": sessionID})
+    })
+
+    // Delete message
+    mux.HandleFunc("/api/messages/delete", func(w http.ResponseWriter, r *http.Request) {
+        if r.Method != http.MethodPost && r.Method != http.MethodDelete {
+            w.WriteHeader(405)
+            return
+        }
+        sessionID := r.URL.Query().Get("session_id")
+        messageID := r.URL.Query().Get("message_id")
+        if sessionID == "" || messageID == "" {
+            writeJSON(w, 400, map[string]any{"error": "missing session_id or message_id"})
+            return
+        }
+        if err := idx.DeleteMessage(sessionID, messageID); err != nil {
+            writeJSON(w, 500, map[string]any{"error": err.Error()})
+            return
+        }
+        writeJSON(w, 200, map[string]any{"ok": true, "deleted_message": messageID})
+    })
+
     // Export: single session
     mux.HandleFunc("/api/export/session", func(w http.ResponseWriter, r *http.Request) {
         q := r.URL.Query()
@@ -522,8 +559,9 @@ const indexHTML = `<!doctype html>
         }
         var anchorId = (m.id && String(m.id).trim() !== '') ? ('msg-' + m.id) : ('msg-L' + (m.line_no || 0));
         var copyBtn = '<span id="'+('copy:'+anchorId).replace(/"/g,'&quot;')+'" class="pill clickable" title="Copy markdown" onclick="copyMessage('+ix+', \''+anchorId.replace(/'/g,"\\'")+'\')">⧉</span>';
+        var delBtn = (m.id && String(m.id).trim() !== '') ? '<span class="pill clickable delete-btn" style="color:#c33;" title="删除此消息" onclick="deleteMessage(\''+currentSessionId.replace(/'/g,"\\'")+'\', \''+m.id.replace(/'/g,"\\'")+'\', '+ix+')">×</span>' : '';
         return '<div class="msg" id="' + anchorId + '">'
-          + '<div class="meta"><div class="role"><span class="pill ' + rolePillClass + '">' + pillLabel + '</span>' + arrow + ' ' + model + '</div><div class="tool">' + copyBtn + '</div></div>'
+          + '<div class="meta"><div class="role"><span class="pill ' + rolePillClass + '">' + pillLabel + '</span>' + arrow + ' ' + model + '</div><div class="tool">' + copyBtn + ' ' + delBtn + '</div></div>'
           + '<div class="content">' + html + '</div>'
           + '</div>';
       }).filter(Boolean).join('');
@@ -895,6 +933,43 @@ const indexHTML = `<!doctype html>
       selectSession(sessionId);
     }
 
+    // Delete session with confirmation
+    async function deleteSession(sessionId, sessionTitle){
+      if(!sessionId) return;
+      var title = sessionTitle || sessionId;
+      if(!confirm('确定要删除会话 "' + title + '" 吗？\n\n此操作将永久删除会话文件，无法恢复！')) return;
+      try{
+        var res = await fetch('/api/sessions/delete?session_id=' + encodeURIComponent(sessionId), {method: 'POST'});
+        var data = await res.json();
+        if(res.ok && data.ok){
+          alert('会话已删除');
+          loadSessions(); // Reload session list
+        } else {
+          alert('删除失败: ' + (data.error || 'Unknown error'));
+        }
+      }catch(e){
+        alert('删除失败: ' + e.message);
+      }
+    }
+
+    // Delete message with confirmation
+    async function deleteMessage(sessionId, messageId, messageIndex){
+      if(!sessionId || !messageId) return;
+      if(!confirm('确定要删除这条消息吗？\n\n此操作将重写会话文件，删除的消息无法恢复！')) return;
+      try{
+        var res = await fetch('/api/messages/delete?session_id=' + encodeURIComponent(sessionId) + '&message_id=' + encodeURIComponent(messageId), {method: 'POST'});
+        var data = await res.json();
+        if(res.ok && data.ok){
+          // Reload messages for current session
+          selectSession(sessionId);
+        } else {
+          alert('删除失败: ' + (data.error || 'Unknown error'));
+        }
+      }catch(e){
+        alert('删除失败: ' + e.message);
+      }
+    }
+
     function formatPath(p){ if(!p) return '(Unknown)';
       // shorten /Users/<name> to ~
       if (p.indexOf('/Users/')===0){ var ix=p.indexOf('/',7); if(ix>0){ return '~'+p.slice(ix); } }
@@ -956,8 +1031,10 @@ const indexHTML = `<!doctype html>
           var meta = fmtStartCountDur(it);
           var copyBtnId = 'copy-cmd-' + (it.id||'').replace(/[^a-zA-Z0-9-]/g, '-');
           var copyBtn = (it.cwd && it.provider === 'claude') ? ('<span id="'+copyBtnId+'" class="pill clickable ml-1" title="Copy resume command" onclick="event.stopPropagation(); copySessionCommand(\''+it.id.replace(/'/g,"\\'")+'\', \''+it.cwd.replace(/'/g,"\\'")+'\', \''+it.provider+'\', \''+copyBtnId+'\'); return false;">⏯</span>') : '';
+          var delBtn = '<span class="pill clickable delete-btn" style="color:#c33;" title="删除会话" onclick="event.stopPropagation(); deleteSession(\''+ it.id.replace(/'/g,"\\'") +'\', \''+ (it.title||it.id).replace(/'/g,"\\'") +'\'); return false;">×</span>';
           return '<div class="item" data-id="' + it.id + '" onclick="selectSession(\'' + it.id + '\')">'
             + '<div class="meta">' + meta + copyBtn + '</div>'
+            + '<div class="meta">' + meta + ' ' + delBtn + '</div>'
             + '<div class="meta">' + pills + '</div>'
             + '</div>';
         }).join('');
@@ -982,8 +1059,10 @@ const indexHTML = `<!doctype html>
               var meta = fmtStartCountDur(it);
               var copyBtnId = 'copy-cmd-' + (it.id||'').replace(/[^a-zA-Z0-9-]/g, '-');
               var copyBtn = (it.cwd && it.provider === 'claude') ? ('<span id="'+copyBtnId+'" class="pill clickable ml-1" title="Copy resume command" onclick="event.stopPropagation(); copySessionCommand(\''+it.id.replace(/'/g,"\\'")+'\', \''+it.cwd.replace(/'/g,"\\'")+'\', \''+it.provider+'\', \''+copyBtnId+'\'); return false;">⏯</span>') : '';
+              var delBtn = '<span class="pill clickable delete-btn" style="color:#c33;" title="删除会话" onclick="event.stopPropagation(); deleteSession(\''+ it.id.replace(/'/g,"\\'") +'\', \''+ (it.title||it.id).replace(/'/g,"\\'") +'\'); return false;">×</span>';
               return '<div class="item" data-id="' + it.id + '" onclick="selectSession(\'' + it.id + '\')">'
                 + '<div class="meta">' + meta + copyBtn + '</div>'
+                + '<div class="meta">' + meta + ' ' + delBtn + '</div>'
                 + '<div class="meta">' + pills + '</div>'
                 + '</div>';
             }).join('');
@@ -1021,8 +1100,10 @@ const indexHTML = `<!doctype html>
                   var meta = fmtStartCountDur(it);
                   var copyBtnId = 'copy-cmd-' + (it.id||'').replace(/[^a-zA-Z0-9-]/g, '-');
                   var copyBtn = (it.cwd && it.provider === 'claude') ? ('<span id="'+copyBtnId+'" class="pill clickable ml-1" title="Copy resume command" onclick="event.stopPropagation(); copySessionCommand(\''+it.id.replace(/'/g,"\\'")+'\', \''+it.cwd.replace(/'/g,"\\'")+'\', \''+it.provider+'\', \''+copyBtnId+'\'); return false;">⏯</span>') : '';
+                  var delBtn = '<span class="pill clickable delete-btn" style="color:#c33;" title="删除会话" onclick="event.stopPropagation(); deleteSession(\''+ it.id.replace(/'/g,"\\'") +'\', \''+ (it.title||it.id).replace(/'/g,"\\'") +'\'); return false;">×</span>';
                   return '<div class="item" data-id="' + it.id + '" onclick="selectSession(\'' + it.id + '\')">'
                     + '<div class="meta">' + meta + copyBtn + '</div>'
+                    + '<div class="meta">' + meta + ' ' + delBtn + '</div>'
                     + '<div class="meta">' + pills + '</div>'
                     + '</div>';
                 }).join('');

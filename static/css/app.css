@@ -123,3 +123,18 @@ select#viewModeSelect:focus-visible {
 .group .result-item { padding-left: var(--space-7); }
 .msg.focus { animation: focusFlash 2s ease 1; }
 @keyframes focusFlash { 0% { background: var(--color-focus-flash); } 100% { background: transparent; } }
+
+/* Delete button styles */
+.delete-btn {
+  font-size: 16px;
+  font-weight: bold;
+  padding: 2px 6px;
+  min-width: 20px;
+  display: inline-block;
+  text-align: center;
+  transition: all 0.2s ease;
+}
+.delete-btn:hover {
+  background: #fee;
+  transform: scale(1.2);
+}

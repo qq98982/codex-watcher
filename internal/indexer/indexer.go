@@ -425,6 +425,156 @@ func (x *Indexer) IngestForTest(sessionID string, raw map[string]any) {
     x.ingestLine("codex", "", sessionID, path, string(b))
 }
 
+// DeleteSession removes a session and all its messages from memory and deletes the source file.
+func (x *Indexer) DeleteSession(sessionID string) error {
+    x.mu.Lock()
+    defer x.mu.Unlock()
+
+    sess, exists := x.sessions[sessionID]
+    if !exists {
+        return fmt.Errorf("session not found: %s", sessionID)
+    }
+
+    // Determine file path based on provider
+    var filePath string
+    if sess.Provider == "claude" {
+        // Parse "claude:<project>:<sid>"
+        parts := strings.SplitN(sessionID, ":", 3)
+        if len(parts) >= 3 {
+            project := parts[1]
+            sid := parts[2]
+            filePath = filepath.Join(x.claudeDir, project, sid+".jsonl")
+        } else {
+            return fmt.Errorf("invalid claude session ID format: %s", sessionID)
+        }
+    } else {
+        // Codex: sessions/<sessionID>.jsonl
+        filePath = filepath.Join(x.codexDir, "sessions", sessionID+".jsonl")
+    }
+
+    // Delete the file
+    if err := os.Remove(filePath); err != nil && !os.IsNotExist(err) {
+        return fmt.Errorf("failed to delete file %s: %w", filePath, err)
+    }
+
+    // Remove from memory
+    delete(x.sessions, sessionID)
+    delete(x.messages, sessionID)
+    delete(x.positions, filePath)
+    delete(x.lineNos, filePath)
+
+    // Update stats
+    x.stats.TotalSessions = len(x.sessions)
+    return nil
+}
+
+// DeleteMessage removes a single message from a session in memory and rewrites the JSONL file.
+func (x *Indexer) DeleteMessage(sessionID, messageID string) error {
+    x.mu.Lock()
+    defer x.mu.Unlock()
+
+    sess, exists := x.sessions[sessionID]
+    if !exists {
+        return fmt.Errorf("session not found: %s", sessionID)
+    }
+
+    msgs := x.messages[sessionID]
+    if len(msgs) == 0 {
+        return fmt.Errorf("no messages in session: %s", sessionID)
+    }
+
+    // Find the message to delete
+    msgIndex := -1
+    for i, msg := range msgs {
+        if msg.ID == messageID {
+            msgIndex = i
+            break
+        }
+    }
+    if msgIndex == -1 {
+        return fmt.Errorf("message not found: %s", messageID)
+    }
+
+    // Determine file path
+    var filePath string
+    if sess.Provider == "claude" {
+        parts := strings.SplitN(sessionID, ":", 3)
+        if len(parts) >= 3 {
+            project := parts[1]
+            sid := parts[2]
+            filePath = filepath.Join(x.claudeDir, project, sid+".jsonl")
+        } else {
+            return fmt.Errorf("invalid claude session ID format: %s", sessionID)
+        }
+    } else {
+        filePath = filepath.Join(x.codexDir, "sessions", sessionID+".jsonl")
+    }
+
+    // Read all lines from the file
+    f, err := os.Open(filePath)
+    if err != nil {
+        return fmt.Errorf("failed to open file %s: %w", filePath, err)
+    }
+    defer f.Close()
+
+    var lines []string
+    scanner := bufio.NewScanner(f)
+    lineNum := 0
+    targetLineNo := msgs[msgIndex].LineNo
+    for scanner.Scan() {
+        lineNum++
+        if lineNum != targetLineNo {
+            lines = append(lines, scanner.Text())
+        }
+    }
+    if err := scanner.Err(); err != nil {
+        return fmt.Errorf("failed to read file %s: %w", filePath, err)
+    }
+    f.Close()
+
+    // Write back the filtered lines
+    tmpPath := filePath + ".tmp"
+    tmpFile, err := os.Create(tmpPath)
+    if err != nil {
+        return fmt.Errorf("failed to create temp file: %w", err)
+    }
+    writer := bufio.NewWriter(tmpFile)
+    for _, line := range lines {
+        if _, err := writer.WriteString(line + "\n"); err != nil {
+            tmpFile.Close()
+            os.Remove(tmpPath)
+            return fmt.Errorf("failed to write temp file: %w", err)
+        }
+    }
+    if err := writer.Flush(); err != nil {
+        tmpFile.Close()
+        os.Remove(tmpPath)
+        return fmt.Errorf("failed to flush temp file: %w", err)
+    }
+    tmpFile.Close()
+
+    // Replace original file with temp file
+    if err := os.Rename(tmpPath, filePath); err != nil {
+        os.Remove(tmpPath)
+        return fmt.Errorf("failed to replace file: %w", err)
+    }
+
+    // Remove from memory
+    x.messages[sessionID] = append(msgs[:msgIndex], msgs[msgIndex+1:]...)
+
+    // Update session stats
+    sess.MessageCount = len(x.messages[sessionID])
+    if msgs[msgIndex].Content != "" {
+        sess.TextCount--
+    }
+
+    // Reset file position to force re-reading
+    x.positions[filePath] = 0
+    x.lineNos[filePath] = 0
+
+    return nil
+}
+
 // Helpers
 
 func stringOr(v any) string {
