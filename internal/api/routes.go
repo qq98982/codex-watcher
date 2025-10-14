@@ -938,7 +938,13 @@ const indexHTML = `<!doctype html>
       for (var g=0; g<groups.length; g++){
         var group = groups[g]; var key = 'search:session:'+group.sid; var collapsed = getCollapsed(key); var caret = collapsed ? '▸' : '▾';
         var startAt = startTimeForSession(group.sid);
-        html += '<div class="group">' + '<div class="item" onclick="toggleGroup(\'' + key.replace(/'/g,"\'") + '\')"><strong>' + escapeHTML(nameForSession(group.sid)) + '</strong> <span class="meta">(' + group.hits.length + ')</span> ' + caret + (startAt ? ('<br /><span class="meta">' + startAt + '</span>') : '') + '</div>';
+        var sess = sessMap[group.sid];
+        var title = (sess && sess.title) || nameForSession(group.sid);
+        var copyBtnId = 'copy-cmd-search-' + (group.sid||'').replace(/[^a-zA-Z0-9-]/g, '-');
+        var copyBtn = (sess && sess.cwd && sess.provider === 'claude') ? ('<span id="'+copyBtnId+'" class="pill clickable ml-1" title="Copy resume command" onclick="event.stopPropagation(); copySessionCommand(\''+group.sid.replace(/'/g,"\\'")+'\', \''+sess.cwd.replace(/'/g,"\\'")+'\', \''+sess.provider+'\', \''+copyBtnId+'\'); return false;">⏯</span>') : '';
+        var editBtn = '<span class="pill clickable ml-1" title="编辑标题" onclick="event.stopPropagation(); editSessionTitle(\''+ group.sid.replace(/'/g,"\\'") +'\', \''+ title.replace(/'/g,"\\'") +'\'); return false;">✏️</span>';
+        var delBtn = '<span class="pill clickable delete-btn" style="color:#c33;" title="删除会话" onclick="event.stopPropagation(); deleteSession(\''+ group.sid.replace(/'/g,"\\'") +'\', \''+ title.replace(/'/g,"\\'") +'\'); return false;">×</span>';
+        html += '<div class="group">' + '<div class="item" onclick="toggleGroup(\'' + key.replace(/'/g,"\'") + '\')"><strong>' + escapeHTML(title) + '</strong> <span class="meta">(' + group.hits.length + ')</span> ' + caret + (startAt ? ('<br /><span class="meta">' + startAt + '</span>') : '') + '<br /><span class="meta">' + copyBtn + ' ' + editBtn + ' ' + delBtn + '</span></div>';
         if (!collapsed){
         for (var j=0;j<group.hits.length;j++){
           var h = group.hits[j]; var pill = (h.type && h.type!=='') ? ('<span class="pill">'+h.type+'</span>') : (h.role? ('<span class="pill">'+h.role+'</span>') : '<span class="pill">message</span>');
@@ -1128,7 +1134,7 @@ const indexHTML = `<!doctype html>
           }
           var lastAtG = (g.lastAt ? new Date(g.lastAt).toLocaleString() : '');
               return '<div class="group">'
-                + '<div class="item" onclick="toggleGroup(\'' + (key.replace(/'/g,"\'")) + '\')" title="' + (g.cwd||'') + '">' + caret + ' <strong class="fw-600">' + titleBase + '</strong><span class="meta ml-1 clickable" title="导出该目录" onclick="event.stopPropagation(); exportDir(\''+ (g.cwd||'').replace(/'/g,"\\'") +'\'); return false;">⤴︎</span><br /> <span class="meta">' + title + '</span><br /> <span class="meta">' + g.items.length + ' sessions • ' + lastAtG + '</span></div>'
+                + '<div class="item' + (collapsed ? '' : ' expanded') + '" onclick="toggleGroup(\'' + (key.replace(/'/g,"\'")) + '\')" title="' + (g.cwd||'') + '">' + caret + ' <strong class="fw-600">' + titleBase + '</strong><span class="meta ml-1 clickable" title="导出该目录" onclick="event.stopPropagation(); exportDir(\''+ (g.cwd||'').replace(/'/g,"\\'") +'\'); return false;">⤴︎</span><br /> <span class="meta">' + title + '</span><br /> <span class="meta">' + g.items.length + ' sessions • ' + lastAtG + '</span></div>'
                 + (collapsed ? '' : sessionsHTML)
                 + '</div>';
         }).join('');
@@ -1171,13 +1177,13 @@ const indexHTML = `<!doctype html>
               }
               var lastAtG = (g.lastAt ? new Date(g.lastAt).toLocaleString() : '');
               return '<div class="group">'
-                + '<div class="item" onclick="toggleGroup(\'' + key.replace(/'/g,"\'") + '\')" title="' + (g.cwd||'') + '">' + caret + ' <strong class="fw-600">' + titleBase + '</strong><span class="meta ml-1 clickable" title="导出该目录" onclick="event.stopPropagation(); exportDir(\''+ (g.cwd||'').replace(/'/g,"\\'") +'\'); return false;">⤴︎</span><br /> <span class="meta">' + title + '</span><br /> <span class="meta">' + g.items.length + ' sessions • ' + lastAtG + '</span></div>'
+                + '<div class="item' + (collapsed ? '' : ' expanded') + '" onclick="toggleGroup(\'' + key.replace(/'/g,"\'") + '\')" title="' + (g.cwd||'') + '">' + caret + ' <strong class="fw-600">' + titleBase + '</strong><span class="meta ml-1 clickable" title="导出该目录" onclick="event.stopPropagation(); exportDir(\''+ (g.cwd||'').replace(/'/g,"\\'") +'\'); return false;">⤴︎</span><br /> <span class="meta">' + title + '</span><br /> <span class="meta">' + g.items.length + ' sessions • ' + lastAtG + '</span></div>'
                 + (collapsed ? '' : sessionsHTML)
                 + '</div>';
             }).join('');
           }
           return '<div class="group">'
-            + '<div class="item" onclick="toggleGroup(\'' + bkey + '\')"><strong>' + b.label + '</strong> <span class="meta">(' + b.items.length + ' sessions)</span> ' + bCaret + '</div>'
+            + '<div class="item' + (bCollapsed ? '' : ' expanded') + '" onclick="toggleGroup(\'' + bkey + '\')"><strong>' + b.label + '</strong> <span class="meta">(' + b.items.length + ' sessions)</span> ' + bCaret + '</div>'
             + (bCollapsed ? '' : inner)
             + '</div>';
         }).join('');
