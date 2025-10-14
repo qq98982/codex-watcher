@@ -224,6 +224,8 @@ func (x *Indexer) tailFile(provider, project, sessionID, path string) error {
             s.FileModAt = modTime
         }
         x.mu.Unlock()
+        // Load custom metadata (title, etc.) after session is created
+        x.loadSessionMetadata(sessionID, provider, project)
     }
     return nil
 }
@@ -266,15 +268,16 @@ func (x *Indexer) ingestLine(provider, project, sessionID, path, line string) {
             if strings.TrimSpace(textOut) != "" { msg.Content = textOut }
             if strings.TrimSpace(thinkOut) != "" { msg.Thinking = thinkOut }
         }
-        // Normalize session id to prefer nested sessionId if present
-        if sid := stringOr(raw["sessionId"]); sid != "" {
-            msg.SessionID = "claude:" + project + ":" + sid
-        }
-        // For summaries, update session title
+        // For Claude: Use filename as session ID (ignore internal sessionId)
+        // This ensures resumed sessions in the same file are treated as one session
+        // msg.SessionID is already set to sessionID (file-based) at the top
+
+        // For summaries, always update title (summaries are more accurate than first message)
+        // Only custom titles from .meta.json will override this later
         if strings.ToLower(msg.Type) == "summary" {
             if s := stringOr(raw["summary"]); s != "" {
                 x.mu.Lock()
-                if sess := x.sessions[msg.SessionID]; sess != nil {
+                if sess := x.sessions[sessionID]; sess != nil {
                     sess.Title = trimTitle(s)
                 }
                 x.mu.Unlock()
@@ -301,6 +304,7 @@ func (x *Indexer) ingestLine(provider, project, sessionID, path, line string) {
         msg.SessionID = sID
     }
     s := x.sessions[sID]
+    isNewSession := (s == nil)
     if s == nil {
         s = &Session{ID: sID, Models: map[string]int{}, Roles: map[string]int{}, Provider: provider, Project: project}
         x.sessions[sID] = s
@@ -317,16 +321,15 @@ func (x *Indexer) ingestLine(provider, project, sessionID, path, line string) {
         }
     }
     // derive a human-friendly session title if missing
+    // Priority: custom title (from .meta.json) > Claude summary > explicit title > first message
+    // Note: custom titles are loaded via loadSessionMetadata and have highest priority
     if s.Title == "" {
         // prefer explicit title field if present
         if t := stringOr(raw["title"]); strings.TrimSpace(t) != "" {
             s.Title = trimTitle(t)
-        } else {
-            // otherwise, take text-only extracted content
-            cand := strings.TrimSpace(msg.Content)
-            if cand != "" {
-                s.Title = trimTitle(cand)
-            }
+        } else if cand := strings.TrimSpace(msg.Content); cand != "" {
+            // Use first message content as initial title (will be overridden by summary if present)
+            s.Title = trimTitle(cand)
         }
     }
     // update session aggregates
@@ -371,6 +374,14 @@ func (x *Indexer) ingestLine(provider, project, sessionID, path, line string) {
 
     x.stats.TotalMessages++
     x.stats.TotalSessions = len(x.sessions)
+
+    // Load custom metadata for newly created sessions
+    // (Unlock happens via defer above, so we're still within the lock here)
+    if isNewSession {
+        // Defer the metadata load to avoid holding the lock too long
+        // We'll use a goroutine to load it asynchronously
+        go x.loadSessionMetadata(sID, provider, project)
+    }
 }
 
 // Public API
@@ -673,11 +684,18 @@ func chooseRelSource(path, provider, codexRoot, claudeRoot string) string {
     return path
 }
 
-// extractClaudeSegments returns (text, thinking) extracted from message.content array.
+// extractClaudeSegments returns (text, thinking) extracted from message.content (string or array).
 func extractClaudeSegments(messageObj map[string]any) (string, string) {
     var textParts []string
     var thinkParts []string
     if messageObj == nil { return "", "" }
+
+    // Handle content as string (user messages)
+    if str, ok := messageObj["content"].(string); ok && strings.TrimSpace(str) != "" {
+        return str, ""
+    }
+
+    // Handle content as array (assistant messages with structured content)
     arr, _ := messageObj["content"].([]any)
     for _, el := range arr {
         m, ok := el.(map[string]any)
@@ -703,10 +721,12 @@ func firstNonEmpty(a, b string) string {
 
 func trimTitle(s string) string {
     s = strings.TrimSpace(strings.ReplaceAll(s, "\n", " "))
-    if len(s) <= 80 {
+    // Use runes to avoid splitting multi-byte UTF-8 characters
+    runes := []rune(s)
+    if len(runes) <= 80 {
         return s
     }
-    return s[:80] + "…"
+    return string(runes[:80]) + "…"
 }
 
 // extractText returns only human-readable text content from a raw JSONL line.
@@ -886,4 +906,84 @@ func findCWDInText(s string) string {
         return cwd
     }
     return ""
+}
+
+// UpdateSessionTitle updates the custom title for a session and persists it to a metadata file.
+func (x *Indexer) UpdateSessionTitle(sessionID, newTitle string) error {
+    x.mu.Lock()
+    defer x.mu.Unlock()
+
+    sess, exists := x.sessions[sessionID]
+    if !exists {
+        return fmt.Errorf("session not found: %s", sessionID)
+    }
+
+    // Update the in-memory title
+    sess.Title = trimTitle(newTitle)
+
+    // Determine metadata file path based on provider
+    var metaPath string
+    if sess.Provider == "claude" {
+        parts := strings.SplitN(sessionID, ":", 3)
+        if len(parts) >= 3 {
+            project := parts[1]
+            sid := parts[2]
+            metaPath = filepath.Join(x.claudeDir, project, sid+".meta.json")
+        } else {
+            return fmt.Errorf("invalid claude session ID format: %s", sessionID)
+        }
+    } else {
+        metaPath = filepath.Join(x.codexDir, "sessions", sessionID+".meta.json")
+    }
+
+    // Save metadata to file
+    metadata := map[string]string{
+        "custom_title": sess.Title,
+    }
+    data, err := json.MarshalIndent(metadata, "", "  ")
+    if err != nil {
+        return fmt.Errorf("failed to marshal metadata: %w", err)
+    }
+
+    if err := os.WriteFile(metaPath, data, 0644); err != nil {
+        return fmt.Errorf("failed to write metadata file %s: %w", metaPath, err)
+    }
+
+    return nil
+}
+
+// loadSessionMetadata loads custom metadata from .meta.json file if it exists.
+func (x *Indexer) loadSessionMetadata(sessionID, provider, project string) {
+    var metaPath string
+    if provider == "claude" {
+        parts := strings.SplitN(sessionID, ":", 3)
+        if len(parts) >= 3 {
+            proj := parts[1]
+            sid := parts[2]
+            metaPath = filepath.Join(x.claudeDir, proj, sid+".meta.json")
+        } else {
+            return
+        }
+    } else {
+        metaPath = filepath.Join(x.codexDir, "sessions", sessionID+".meta.json")
+    }
+
+    data, err := os.ReadFile(metaPath)
+    if err != nil {
+        return // File doesn't exist or can't be read, that's OK
+    }
+
+    var metadata map[string]string
+    if err := json.Unmarshal(data, &metadata); err != nil {
+        return // Invalid JSON, ignore
+    }
+
+    // Apply custom title if present
+    if customTitle, ok := metadata["custom_title"]; ok && strings.TrimSpace(customTitle) != "" {
+        x.mu.Lock()
+        if sess := x.sessions[sessionID]; sess != nil {
+            sess.Title = customTitle
+        }
+        x.mu.Unlock()
+    }
 }

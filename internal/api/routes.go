@@ -132,6 +132,29 @@ func AttachRoutes(mux *http.ServeMux, idx *indexer.Indexer) {
         writeJSON(w, 200, map[string]any{"ok": true, "deleted_message": messageID})
     })
 
+    // Update session title
+    mux.HandleFunc("/api/sessions/update-title", func(w http.ResponseWriter, r *http.Request) {
+        if r.Method != http.MethodPost {
+            w.WriteHeader(405)
+            return
+        }
+        sessionID := r.URL.Query().Get("session_id")
+        newTitle := r.URL.Query().Get("title")
+        if sessionID == "" {
+            writeJSON(w, 400, map[string]any{"error": "missing session_id"})
+            return
+        }
+        if newTitle == "" {
+            writeJSON(w, 400, map[string]any{"error": "missing title"})
+            return
+        }
+        if err := idx.UpdateSessionTitle(sessionID, newTitle); err != nil {
+            writeJSON(w, 500, map[string]any{"error": err.Error()})
+            return
+        }
+        writeJSON(w, 200, map[string]any{"ok": true, "title": newTitle})
+    })
+
     // Export: single session
     mux.HandleFunc("/api/export/session", func(w http.ResponseWriter, r *http.Request) {
         q := r.URL.Query()
@@ -970,6 +993,38 @@ const indexHTML = `<!doctype html>
       }
     }
 
+    // Edit session title
+    function editSessionTitle(sessionId, currentTitle){
+      if(!sessionId) return;
+      var newTitle = prompt('请输入新标题:', currentTitle || '');
+      if(newTitle === null || newTitle.trim() === '') return; // User cancelled or empty
+      updateSessionTitle(sessionId, newTitle.trim());
+    }
+
+    // Update session title via API
+    async function updateSessionTitle(sessionId, newTitle){
+      if(!sessionId || !newTitle) return;
+      try{
+        var res = await fetch('/api/sessions/update-title?session_id=' + encodeURIComponent(sessionId) + '&title=' + encodeURIComponent(newTitle), {method: 'POST'});
+        var data = await res.json();
+        if(res.ok && data.ok){
+          // Update the title in the sessions cache
+          for(var i = 0; i < sessionsCache.length; i++){
+            if(sessionsCache[i].id === sessionId){
+              sessionsCache[i].title = newTitle;
+              break;
+            }
+          }
+          // Re-render sessions list to show updated title
+          renderSessions(sessionsCache);
+        } else {
+          alert('更新标题失败: ' + (data.error || 'Unknown error'));
+        }
+      }catch(e){
+        alert('更新标题失败: ' + e.message);
+      }
+    }
+
     function formatPath(p){ if(!p) return '(Unknown)';
       // shorten /Users/<name> to ~
       if (p.indexOf('/Users/')===0){ var ix=p.indexOf('/',7); if(ix>0){ return '~'+p.slice(ix); } }
@@ -1029,11 +1084,14 @@ const indexHTML = `<!doctype html>
         s.innerHTML = filtered.map(function(it){
           var pills = Object.keys(it.models||{}).map(function(m){ return '<span class="pill">'+m+'</span>'; }).join('');
           var meta = fmtStartCountDur(it);
+          var title = it.title || '(No title)';
           var copyBtnId = 'copy-cmd-' + (it.id||'').replace(/[^a-zA-Z0-9-]/g, '-');
           var copyBtn = (it.cwd && it.provider === 'claude') ? ('<span id="'+copyBtnId+'" class="pill clickable ml-1" title="Copy resume command" onclick="event.stopPropagation(); copySessionCommand(\''+it.id.replace(/'/g,"\\'")+'\', \''+it.cwd.replace(/'/g,"\\'")+'\', \''+it.provider+'\', \''+copyBtnId+'\'); return false;">⏯</span>') : '';
+          var editBtn = '<span class="pill clickable ml-1" title="编辑标题" onclick="event.stopPropagation(); editSessionTitle(\''+ it.id.replace(/'/g,"\\'") +'\', \''+ title.replace(/'/g,"\\'") +'\'); return false;">✏️</span>';
           var delBtn = '<span class="pill clickable delete-btn" style="color:#c33;" title="删除会话" onclick="event.stopPropagation(); deleteSession(\''+ it.id.replace(/'/g,"\\'") +'\', \''+ (it.title||it.id).replace(/'/g,"\\'") +'\'); return false;">×</span>';
           return '<div class="item" data-id="' + it.id + '" onclick="selectSession(\'' + it.id + '\')">'
-            + '<div class="meta">' + meta + ' ' + copyBtn + ' ' + delBtn + '</div>'
+            + '<div><strong>' + escapeHTML(title) + '</strong></div>'
+            + '<div class="meta">' + meta + ' ' + copyBtn + ' ' + editBtn + ' ' + delBtn + '</div>'
             + '<div class="meta">' + pills + '</div>'
             + '</div>';
         }).join('');
@@ -1056,11 +1114,14 @@ const indexHTML = `<!doctype html>
             sessionsHTML = g.items.map(function(it){
               var pills = Object.keys(it.models||{}).map(function(m){ return '<span class="pill">'+m+'</span>'; }).join('');
               var meta = fmtStartCountDur(it);
+              var title = it.title || '(No title)';
               var copyBtnId = 'copy-cmd-' + (it.id||'').replace(/[^a-zA-Z0-9-]/g, '-');
               var copyBtn = (it.cwd && it.provider === 'claude') ? ('<span id="'+copyBtnId+'" class="pill clickable ml-1" title="Copy resume command" onclick="event.stopPropagation(); copySessionCommand(\''+it.id.replace(/'/g,"\\'")+'\', \''+it.cwd.replace(/'/g,"\\'")+'\', \''+it.provider+'\', \''+copyBtnId+'\'); return false;">⏯</span>') : '';
+              var editBtn = '<span class="pill clickable ml-1" title="编辑标题" onclick="event.stopPropagation(); editSessionTitle(\''+ it.id.replace(/'/g,"\\'") +'\', \''+ title.replace(/'/g,"\\'") +'\'); return false;">✏️</span>';
               var delBtn = '<span class="pill clickable delete-btn" style="color:#c33;" title="删除会话" onclick="event.stopPropagation(); deleteSession(\''+ it.id.replace(/'/g,"\\'") +'\', \''+ (it.title||it.id).replace(/'/g,"\\'") +'\'); return false;">×</span>';
               return '<div class="item" data-id="' + it.id + '" onclick="selectSession(\'' + it.id + '\')">'
-                + '<div class="meta">' + meta + ' ' + copyBtn + ' ' + delBtn + '</div>'
+                + '<div><strong>' + escapeHTML(title) + '</strong></div>'
+                + '<div class="meta">' + meta + ' ' + copyBtn + ' ' + editBtn + ' ' + delBtn + '</div>'
                 + '<div class="meta">' + pills + '</div>'
                 + '</div>';
             }).join('');
@@ -1096,11 +1157,14 @@ const indexHTML = `<!doctype html>
                 sessionsHTML = g.items.map(function(it){
                   var pills = Object.keys(it.models||{}).map(function(m){ return '<span class="pill">'+m+'</span>'; }).join('');
                   var meta = fmtStartCountDur(it);
+                  var title = it.title || '(No title)';
                   var copyBtnId = 'copy-cmd-' + (it.id||'').replace(/[^a-zA-Z0-9-]/g, '-');
                   var copyBtn = (it.cwd && it.provider === 'claude') ? ('<span id="'+copyBtnId+'" class="pill clickable ml-1" title="Copy resume command" onclick="event.stopPropagation(); copySessionCommand(\''+it.id.replace(/'/g,"\\'")+'\', \''+it.cwd.replace(/'/g,"\\'")+'\', \''+it.provider+'\', \''+copyBtnId+'\'); return false;">⏯</span>') : '';
+                  var editBtn = '<span class="pill clickable ml-1" title="编辑标题" onclick="event.stopPropagation(); editSessionTitle(\''+ it.id.replace(/'/g,"\\'") +'\', \''+ title.replace(/'/g,"\\'") +'\'); return false;">✏️</span>';
                   var delBtn = '<span class="pill clickable delete-btn" style="color:#c33;" title="删除会话" onclick="event.stopPropagation(); deleteSession(\''+ it.id.replace(/'/g,"\\'") +'\', \''+ (it.title||it.id).replace(/'/g,"\\'") +'\'); return false;">×</span>';
                   return '<div class="item" data-id="' + it.id + '" onclick="selectSession(\'' + it.id + '\')">'
-                    + '<div class="meta">' + meta + ' ' + copyBtn + ' ' + delBtn + '</div>'
+                    + '<div><strong>' + escapeHTML(title) + '</strong></div>'
+                    + '<div class="meta">' + meta + ' ' + copyBtn + ' ' + editBtn + ' ' + delBtn + '</div>'
                     + '<div class="meta">' + pills + '</div>'
                     + '</div>';
                 }).join('');
