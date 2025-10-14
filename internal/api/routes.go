@@ -1033,8 +1033,7 @@ const indexHTML = `<!doctype html>
           var copyBtn = (it.cwd && it.provider === 'claude') ? ('<span id="'+copyBtnId+'" class="pill clickable ml-1" title="Copy resume command" onclick="event.stopPropagation(); copySessionCommand(\''+it.id.replace(/'/g,"\\'")+'\', \''+it.cwd.replace(/'/g,"\\'")+'\', \''+it.provider+'\', \''+copyBtnId+'\'); return false;">⏯</span>') : '';
           var delBtn = '<span class="pill clickable delete-btn" style="color:#c33;" title="删除会话" onclick="event.stopPropagation(); deleteSession(\''+ it.id.replace(/'/g,"\\'") +'\', \''+ (it.title||it.id).replace(/'/g,"\\'") +'\'); return false;">×</span>';
           return '<div class="item" data-id="' + it.id + '" onclick="selectSession(\'' + it.id + '\')">'
-            + '<div class="meta">' + meta + copyBtn + '</div>'
-            + '<div class="meta">' + meta + ' ' + delBtn + '</div>'
+            + '<div class="meta">' + meta + ' ' + copyBtn + ' ' + delBtn + '</div>'
             + '<div class="meta">' + pills + '</div>'
             + '</div>';
         }).join('');
@@ -1061,8 +1060,7 @@ const indexHTML = `<!doctype html>
               var copyBtn = (it.cwd && it.provider === 'claude') ? ('<span id="'+copyBtnId+'" class="pill clickable ml-1" title="Copy resume command" onclick="event.stopPropagation(); copySessionCommand(\''+it.id.replace(/'/g,"\\'")+'\', \''+it.cwd.replace(/'/g,"\\'")+'\', \''+it.provider+'\', \''+copyBtnId+'\'); return false;">⏯</span>') : '';
               var delBtn = '<span class="pill clickable delete-btn" style="color:#c33;" title="删除会话" onclick="event.stopPropagation(); deleteSession(\''+ it.id.replace(/'/g,"\\'") +'\', \''+ (it.title||it.id).replace(/'/g,"\\'") +'\'); return false;">×</span>';
               return '<div class="item" data-id="' + it.id + '" onclick="selectSession(\'' + it.id + '\')">'
-                + '<div class="meta">' + meta + copyBtn + '</div>'
-                + '<div class="meta">' + meta + ' ' + delBtn + '</div>'
+                + '<div class="meta">' + meta + ' ' + copyBtn + ' ' + delBtn + '</div>'
                 + '<div class="meta">' + pills + '</div>'
                 + '</div>';
             }).join('');
@@ -1102,8 +1100,7 @@ const indexHTML = `<!doctype html>
                   var copyBtn = (it.cwd && it.provider === 'claude') ? ('<span id="'+copyBtnId+'" class="pill clickable ml-1" title="Copy resume command" onclick="event.stopPropagation(); copySessionCommand(\''+it.id.replace(/'/g,"\\'")+'\', \''+it.cwd.replace(/'/g,"\\'")+'\', \''+it.provider+'\', \''+copyBtnId+'\'); return false;">⏯</span>') : '';
                   var delBtn = '<span class="pill clickable delete-btn" style="color:#c33;" title="删除会话" onclick="event.stopPropagation(); deleteSession(\''+ it.id.replace(/'/g,"\\'") +'\', \''+ (it.title||it.id).replace(/'/g,"\\'") +'\'); return false;">×</span>';
                   return '<div class="item" data-id="' + it.id + '" onclick="selectSession(\'' + it.id + '\')">'
-                    + '<div class="meta">' + meta + copyBtn + '</div>'
-                    + '<div class="meta">' + meta + ' ' + delBtn + '</div>'
+                    + '<div class="meta">' + meta + ' ' + copyBtn + ' ' + delBtn + '</div>'
                     + '<div class="meta">' + pills + '</div>'
                     + '</div>';
                 }).join('');
