@@ -14,11 +14,42 @@ BIN_PATH="${BIN_DIR}/${BIN_NAME}"
 GOCACHE="$(pwd)/.gocache"
 GOMODCACHE="$(pwd)/.gomodcache"
 
+# Arguments
+RUN_TESTS=0
+PRUNE_DRY_RUN=0
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --test)
+            RUN_TESTS=1
+            shift
+            ;;
+        --dry-run)
+            PRUNE_DRY_RUN=1
+            shift
+            ;;
+        --skip-prune)
+            SKIP_WARMUP_PRUNE=1
+            shift
+            ;;
+        --)
+            shift
+            break
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Supported: --test, --dry-run, --skip-prune"
+            exit 1
+            ;;
+    esac
+done
+
 # Server configuration
 PORT="${PORT:-7077}"
 CODEX_DIR="${CODEX_DIR:-$HOME/.codex}"
 CLAUDE_DIR="${CLAUDE_DIR:-$HOME/.claude/projects}"
 HOST="${HOST:-0.0.0.0}"
+PRUNE_SCRIPT="$(pwd)/scripts/prune-warmup-sessions.py"
 
 # Colors for output
 GREEN='\033[0;32m'
@@ -39,6 +70,22 @@ echo -e "${GREEN}✓ Go found: $($GO_BIN version)${NC}"
 # Create directories
 mkdir -p "$BIN_DIR" "$GOCACHE" "$GOMODCACHE"
 
+# Optional warmup session pruning
+if [ "${SKIP_WARMUP_PRUNE:-0}" != "1" ] && [ -x "$PRUNE_SCRIPT" ]; then
+    PRUNE_MODE_MSG="Pruning stale warmup sessions (>24h)"
+    if [ "$PRUNE_DRY_RUN" -eq 1 ]; then
+        PRUNE_MODE_MSG="$PRUNE_MODE_MSG [dry-run]"
+    fi
+    echo -e "\n${BLUE}${PRUNE_MODE_MSG}...${NC}"
+    PRUNE_ARGS=(--codex-dir "$CODEX_DIR" --claude-dir "$CLAUDE_DIR" --max-age-hours 24)
+    if [ "$PRUNE_DRY_RUN" -eq 1 ]; then
+        PRUNE_ARGS+=("--dry-run")
+    fi
+    if ! "$PRUNE_SCRIPT" "${PRUNE_ARGS[@]}"; then
+        echo -e "${YELLOW}Warning: failed to prune warmup sessions${NC}"
+    fi
+fi
+
 # Build
 echo -e "\n${BLUE}Building...${NC}"
 GOCACHE="$GOCACHE" GOMODCACHE="$GOMODCACHE" "$GO_BIN" build -o "$BIN_PATH" ./cmd/codex-watcher
@@ -52,7 +99,7 @@ else
 fi
 
 # Run tests (optional)
-if [ "$1" == "--test" ]; then
+if [ "$RUN_TESTS" -eq 1 ]; then
     echo -e "\n${BLUE}Running tests...${NC}"
     GOCACHE="$GOCACHE" GOMODCACHE="$GOMODCACHE" "$GO_BIN" test ./... -v
     exit 0
