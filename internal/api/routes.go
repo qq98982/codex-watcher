@@ -1000,7 +1000,6 @@ const indexHTML = `<!doctype html>
         var res = await fetch('/api/sessions/delete?session_id=' + encodeURIComponent(sessionId), {method: 'POST'});
         var data = await res.json();
         if(res.ok && data.ok){
-          alert('会话已删除');
           loadSessions(); // Reload session list
         } else {
           alert('删除失败: ' + (data.error || 'Unknown error'));
