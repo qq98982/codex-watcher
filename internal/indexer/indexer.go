@@ -310,7 +310,6 @@ func (x *Indexer) ingestLine(provider, project, sessionID, path, line string) {
 	}
 
 	x.mu.Lock()
-	defer x.mu.Unlock()
 
 	// increment line number per file
 	x.lineNos[path]++
@@ -394,12 +393,11 @@ func (x *Indexer) ingestLine(provider, project, sessionID, path, line string) {
 	x.stats.TotalMessages++
 	x.stats.TotalSessions = len(x.sessions)
 
-	// Load custom metadata for newly created sessions
-	// (Unlock happens via defer above, so we're still within the lock here)
+	x.mu.Unlock()
+
+	// Load custom metadata for newly created sessions after releasing the lock
 	if isNewSession {
-		// Defer the metadata load to avoid holding the lock too long
-		// We'll use a goroutine to load it asynchronously
-		go x.loadSessionMetadata(sID, provider, project)
+		x.loadSessionMetadata(sID, provider, project)
 	}
 }
 
