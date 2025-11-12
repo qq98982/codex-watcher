@@ -813,6 +813,7 @@ const indexHTML = `<!doctype html>
     function isBucketKey(key){ return key && key.indexOf('bucket:')===0 && key.indexOf(':cwd:')===-1 }
     function isCwdKey(key){ return key && (key.indexOf('cwd:')===0 || key.indexOf(':cwd:')>0) }
     let lastSearch = {res:null, q:''};
+    let activeSearchSelection = null;
     function toggleGroup(key){
       if (isBucketKey(key)) {
         // Accordion behavior for buckets: open this one, close others
@@ -973,22 +974,73 @@ const indexHTML = `<!doctype html>
         var copyBtn = (sess && sess.cwd && sess.provider === 'claude') ? ('<span id="'+copyBtnId+'" class="pill clickable ml-1" title="Copy resume command" onclick="event.stopPropagation(); copySessionCommand(\''+group.sid.replace(/'/g,"\\'")+'\', \''+sess.cwd.replace(/'/g,"\\'")+'\', \''+sess.provider+'\', \''+copyBtnId+'\'); return false;">⏯</span>') : '';
         var editBtn = '<span class="pill clickable ml-1" title="编辑标题" onclick="event.stopPropagation(); editSessionTitle(\''+ group.sid.replace(/'/g,"\\'") +'\', \''+ title.replace(/'/g,"\\'") +'\'); return false;">✏️</span>';
         var delBtn = '<span class="pill clickable delete-btn" style="color:#c33;" title="删除会话" onclick="event.stopPropagation(); deleteSession(\''+ group.sid.replace(/'/g,"\\'") +'\', \''+ title.replace(/'/g,"\\'") +'\'); return false;">×</span>';
-        html += '<div class="group">' + '<div class="item" onclick="toggleGroup(\'' + key.replace(/'/g,"\'") + '\')"><strong>' + escapeHTML(title) + '</strong> <span class="meta">(' + group.hits.length + ')</span> ' + caret + (startAt ? ('<br /><span class="meta">' + startAt + '</span>') : '') + '<br /><span class="meta">' + copyBtn + ' ' + editBtn + ' ' + delBtn + '</span></div>';
+        var groupAttrSid = escapeHTML(group.sid||'');
+        html += '<div class="group">' + '<div class="item" data-sid="'+groupAttrSid+'" onclick="toggleGroup(\'' + key.replace(/'/g,"\'") + '\')"><strong>' + escapeHTML(title) + '</strong> <span class="meta">(' + group.hits.length + ')</span> ' + caret + (startAt ? ('<br /><span class="meta">' + startAt + '</span>') : '') + '<br /><span class="meta">' + copyBtn + ' ' + editBtn + ' ' + delBtn + '</span></div>';
         if (!collapsed){
         for (var j=0;j<group.hits.length;j++){
           var h = group.hits[j]; var pill = (h.type && h.type!=='') ? ('<span class="pill">'+h.type+'</span>') : (h.role? ('<span class="pill">'+h.role+'</span>') : '<span class="pill">message</span>');
           var field = h.field || 'content'; var snippet = hiSnippet(h.content||'', q);
           var anchor = (h.message_id && String(h.message_id).trim() !== '') ? String(h.message_id) : ('L'+(h.line_no||0));
-          html += '<div class="result-item" onclick="openHit(\''+group.sid+'\', \''+anchor.replace(/'/g,"\\'")+'\', '+(h.line_no||0)+')">' + '<div class="meta">' + pill + ' <span class="pill">' + field + '</span></div>' + '<div>' + (snippet? snippet : '<span class="meta">(no preview)</span>') + '</div>' + '</div>';
+          var safeAnchorAttr = escapeHTML(anchor);
+          html += '<div class="result-item" data-session-id="'+groupAttrSid+'" data-anchor="'+safeAnchorAttr+'" onclick="openHit(\''+group.sid+'\', \''+anchor.replace(/'/g,"\\'")+'\', '+(h.line_no||0)+')">' + '<div class="meta">' + pill + ' <span class="pill">' + field + '</span></div>' + '<div>' + (snippet? snippet : '<span class="meta">(no preview)</span>') + '</div>' + '</div>';
         }
         }
         html += '</div>';
       }
       el.innerHTML = html;
+      applyActiveSearchSelection();
     }
     function openHit(sessionId, anchor, lineNo){
       window.pendingFocus = { sessionId: sessionId, messageId: (anchor && anchor[0] !== 'L') ? anchor : '', lineNo: lineNo };
+      markSearchSelection(sessionId, anchor);
       selectSession(sessionId);
+    }
+    function markSearchSelection(sessionId, anchor){
+      if(!sessionId){
+        activeSearchSelection = null;
+      } else {
+        activeSearchSelection = {sessionId: sessionId, anchor: anchor || ''};
+      }
+      applyActiveSearchSelection();
+    }
+    function applyActiveSearchSelection(){
+      var sr = document.getElementById('search-results');
+      if(!sr) return;
+      var groupNodes = sr.querySelectorAll('.group .item[data-sid]');
+      for(var i=0;i<groupNodes.length;i++){ try{ groupNodes[i].classList.remove('active'); }catch(e){} }
+      var resultNodes = sr.querySelectorAll('.result-item[data-session-id]');
+      for(var j=0;j<resultNodes.length;j++){ try{ resultNodes[j].classList.remove('active'); }catch(e){} }
+      if(!activeSearchSelection) return;
+      var sid = activeSearchSelection.sessionId;
+      var anchor = activeSearchSelection.anchor || '';
+      for(var k=0;k<groupNodes.length;k++){
+        var node = groupNodes[k];
+        if(node && node.dataset && node.dataset.sid === sid){
+          node.classList.add('active');
+        }
+      }
+      var matched = null;
+      for(var m=0;m<resultNodes.length;m++){
+        var rnode = resultNodes[m];
+        if(!rnode || !rnode.dataset) continue;
+        if(rnode.dataset.sessionId === sid && rnode.dataset.anchor === anchor){
+          matched = rnode;
+          break;
+        }
+      }
+      if(!matched){
+        for(var n=0;n<resultNodes.length;n++){
+          var rnode2 = resultNodes[n];
+          if(rnode2 && rnode2.dataset && rnode2.dataset.sessionId === sid){
+            matched = rnode2;
+            break;
+          }
+        }
+      }
+      if(matched){
+        matched.classList.add('active');
+        try{ matched.scrollIntoView({block:'nearest'}); }catch(e){}
+      }
     }
 
     // Delete session with confirmation
