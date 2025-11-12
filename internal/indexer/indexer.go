@@ -49,6 +49,8 @@ type Session struct {
 	Sources      []string       `json:"sources,omitempty"`
 	Provider     string         `json:"provider,omitempty"` // codex|claude
 	Project      string         `json:"project,omitempty"`  // for claude
+	hasSummary   bool           `json:"-"`
+	hasContent   bool           `json:"-"`
 }
 
 // Indexer tails JSONL files under ~/.codex and builds an in-memory index.
@@ -291,13 +293,14 @@ func (x *Indexer) ingestLine(provider, project, sessionID, path, line string) {
 		// This ensures resumed sessions in the same file are treated as one session
 		// msg.SessionID is already set to sessionID (file-based) at the top
 
-		// For summaries, always update title (summaries are more accurate than first message)
-		// Only custom titles from .meta.json will override this later
 		if strings.ToLower(msg.Type) == "summary" {
 			if s := stringOr(raw["summary"]); s != "" {
 				x.mu.Lock()
 				if sess := x.sessions[sessionID]; sess != nil {
-					sess.Title = trimTitle(s)
+					if !sess.hasContent && !sess.hasSummary && strings.TrimSpace(sess.Title) == "" {
+						sess.Title = trimTitle(s)
+						sess.hasSummary = true
+					}
 				}
 				x.mu.Unlock()
 			}
@@ -337,6 +340,10 @@ func (x *Indexer) ingestLine(provider, project, sessionID, path, line string) {
 				s.CWDBase = filepath.Base(base)
 			}
 		}
+	}
+	// track if we have seen actual user/assistant content
+	if !strings.EqualFold(msg.Type, "summary") && (msg.Role == "user" || msg.Role == "assistant") {
+		s.hasContent = true
 	}
 	// derive a human-friendly session title if missing
 	// Priority: custom title (from .meta.json) > Claude summary > explicit title > first message
@@ -1078,6 +1085,7 @@ func (x *Indexer) UpdateSessionTitle(sessionID, newTitle string) error {
 
 	// Update the in-memory title
 	sess.Title = trimTitle(newTitle)
+	sess.hasSummary = true
 
 	// Determine metadata file path based on provider
 	var metaPath string
@@ -1141,6 +1149,7 @@ func (x *Indexer) loadSessionMetadata(sessionID, provider, project string) {
 		x.mu.Lock()
 		if sess := x.sessions[sessionID]; sess != nil {
 			sess.Title = customTitle
+			sess.hasSummary = true
 		}
 		x.mu.Unlock()
 	}
