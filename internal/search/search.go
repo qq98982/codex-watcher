@@ -195,9 +195,7 @@ func Exec(idx *indexer.Indexer, q Query, limit, offset int) Response {
 			default:
 				res.Content = strings.TrimSpace(m.Content)
 			}
-			if len(res.Content) > 240 {
-				res.Content = res.Content[:240]
-			}
+			res.Content = truncateRunes(res.Content, 240)
 			results = append(results, res)
 			if len(results) >= limit {
 				// still compute total within budget for better UX
@@ -247,6 +245,17 @@ func displayTitleForSession(s indexer.Session) string {
 		return id
 	}
 	return ""
+}
+
+func truncateRunes(s string, max int) string {
+	if max <= 0 || len(s) == 0 {
+		return ""
+	}
+	runes := []rune(s)
+	if len(runes) <= max {
+		return s
+	}
+	return string(runes[:max])
 }
 
 // matchesFieldFilters applies only Field clauses to a message and its session.
