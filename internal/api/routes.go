@@ -411,15 +411,21 @@ const indexHTML = `<!doctype html>
       currentSessionId = null;
       loadSessions();
     }
+    let sessionsLoadPromise = null;
     async function loadSessions(){
-      try{
-        const res = await fetch('/api/sessions?source=' + encodeURIComponent(currentSource));
-        const data = await res.json();
-        sessionsCache = Array.isArray(data) ? data : [];
-        renderSessions(sessionsCache);
-        if (sessionsCache.length > 0) { selectSession(sessionsCache[0].id); }
-      }catch(e){}
-      updateSourceTabs();
+      sessionsLoadPromise = (async function(){
+        try{
+          const res = await fetch('/api/sessions?source=' + encodeURIComponent(currentSource));
+          const data = await res.json();
+          sessionsCache = Array.isArray(data) ? data : [];
+          renderSessions(sessionsCache);
+          if (sessionsCache.length > 0) { selectSession(sessionsCache[0].id); }
+        }catch(e){}
+        updateSourceTabs();
+        return sessionsCache;
+      })();
+      try{ await sessionsLoadPromise; }catch(e){}
+      return sessionsCache;
     }
     function updateSourceTabs(){
       var cod = document.getElementById('tab-codex');
@@ -852,6 +858,9 @@ const indexHTML = `<!doctype html>
 
     // Search
     async function runSearch(){
+      if (sessionsLoadPromise) {
+        try { await sessionsLoadPromise; } catch(e){}
+      }
       var q = (document.getElementById('searchInput')||{}).value || '';
       q = (q||'').trim();
       if (!q) { return clearSearch(); }
@@ -873,6 +882,10 @@ const indexHTML = `<!doctype html>
       if (sr) sr.classList.remove('hidden');
       if (sc) sc.classList.add('hidden');
       if (sl) sl.classList.add('hidden');
+    }
+    function isSearchViewVisible(){
+      var sr = document.getElementById('search-results');
+      return !!(sr && !sr.classList.contains('hidden'));
     }
     function showSessionsList(){
       var sr = document.getElementById('search-results');
@@ -931,7 +944,15 @@ const indexHTML = `<!doctype html>
       var groups = Object.keys(bySession).map(function(sid){ var hits=bySession[sid]; hits.sort(function(a,b){ var ta=(a.ts?Date.parse(a.ts):0), tb=(b.ts?Date.parse(b.ts):0); if(ta!==tb) return tb-ta; return (a.line_no||0)-(b.line_no||0); }); return {sid:sid, hits:hits}; });
       groups.sort(function(a,b){ var ta=(a.hits[0]&&a.hits[0].ts?Date.parse(a.hits[0].ts):0), tb=(b.hits[0]&&b.hits[0].ts?Date.parse(b.hits[0].ts):0); return tb-ta; });
       var sessMap = {}; try{ (sessionsCache||[]).forEach(function(s){ sessMap[s.id]=s; }); }catch(e){}
-      function nameForSession(id){ var s=sessMap[id]; if(!s) return id; var base = (s.cwd_base||''); if (base) return base; return (s.title||id); }
+      function nameForSession(id){
+        var s = sessMap[id];
+        if(!s) return id;
+        var title = (s.title || '').trim();
+        if (title) return title;
+        var base = (s.cwd_base || '').trim();
+        if (base) return base;
+        return id;
+      }
       function startTimeForSession(id){ var s=sessMap[id]; if(!s) return ''; return s.first_at ? new Date(s.first_at).toLocaleString() : ''; }
       var html = '<div class="meta pad-sm"><a href="#" class="back-link" onclick="showSessionsList(); return false;">← Back</a></div>';
       html += '<div class="meta pad-sm">Found ' + (res.total||0) + ' in ' + (res.took_ms||0) + ' ms' + (res.truncated? ' (truncated)':'' ) + '</div>';
@@ -1023,6 +1044,9 @@ const indexHTML = `<!doctype html>
           }
           // Re-render sessions list to show updated title
           renderSessions(sessionsCache);
+          if (isSearchViewVisible() && lastSearch && lastSearch.res) {
+            renderSearchResults(lastSearch.res, lastSearch.q||'');
+          }
         } else {
           alert('更新标题失败: ' + (data.error || 'Unknown error'));
         }
@@ -1192,6 +1216,9 @@ const indexHTML = `<!doctype html>
           if (first3 && first3.dataset && first3.dataset.id) { selectSession(first3.dataset.id); }
         }
         try { setActiveSessionInList(currentSessionId); } catch(e) {}
+      }
+      if (isSearchViewVisible() && lastSearch && lastSearch.res) {
+        try { renderSearchResults(lastSearch.res, lastSearch.q||''); } catch(e){}
       }
     }
     window.addEventListener('load', ()=>{

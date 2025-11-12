@@ -2,6 +2,7 @@ package indexer
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -101,6 +102,36 @@ func TestIngestAndSessions(t *testing.T) {
 	y, m, d := ss[1].FirstAt.Date()
 	if y != 2024 || m != time.January || d != 2 {
 		t.Fatalf("unexpected firstAt date: %v", ss[1].FirstAt)
+	}
+}
+
+func TestEnvironmentContextTitleFallback(t *testing.T) {
+	x := New("/tmp/.codex", "")
+	sid := "rollout-2025-11-04T18-33-09-019a4e36-8d3f-7b13-9df1-655d8e4f9bbd"
+	line := fmt.Sprintf(`{"id":"env1","session_id":"%s","role":"system","content":"<environment_context><cwd>/workspace/app</cwd><approval_policy>never</approval_policy><sandbox_mode>danger-full-access</sandbox_mode><shell>zsh</shell></environment_context>","environment_context":"<environment_context><cwd>/workspace/app</cwd><approval_policy>never</approval_policy><sandbox_mode>danger-full-access</sandbox_mode><shell>zsh</shell></environment_context>","ts":"2024-01-02T03:04:05Z"}`, sid)
+	x.ingestLine("codex", "", sid, "/tmp/.codex/sessions/env-session.jsonl", line)
+
+	ss := x.Sessions()
+	if len(ss) != 1 {
+		t.Fatalf("expected 1 session, got %d", len(ss))
+	}
+	if got := ss[0].Title; got != "app" {
+		t.Fatalf("expected fallback title 'app', got %q", got)
+	}
+}
+
+func TestRolloutTitlePreferredContent(t *testing.T) {
+	x := New("/tmp/.codex", "")
+	sid := "rollout-2025-11-04T18-33-09-019a4e36-8d3f-7b13-9df1-655d8e4f9bbd"
+	line := fmt.Sprintf(`{"id":"m1","session_id":"%s","role":"user","title":"%s","content":"Fix the search titles please","ts":"2025-11-04T18:33:09Z","cwd":"/workspace/app"}`, sid, sid)
+	x.ingestLine("codex", "", sid, "/tmp/.codex/sessions/rollout.jsonl", line)
+
+	ss := x.Sessions()
+	if len(ss) != 1 {
+		t.Fatalf("expected 1 session, got %d", len(ss))
+	}
+	if got := ss[0].Title; got != "Fix the search titles please" {
+		t.Fatalf("expected content-derived title, got %q", got)
 	}
 }
 
