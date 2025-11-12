@@ -953,6 +953,14 @@ const indexHTML = `<!doctype html>
         if (base) return base;
         return id;
       }
+      function titleFromHits(hits){
+        if (!hits || !hits.length) return '';
+        for (var i=0;i<hits.length;i++){
+          var t = (hits[i].session_title || '').trim();
+          if (t) return t;
+        }
+        return '';
+      }
       function startTimeForSession(id){ var s=sessMap[id]; if(!s) return ''; return s.first_at ? new Date(s.first_at).toLocaleString() : ''; }
       var html = '<div class="meta pad-sm"><a href="#" class="back-link" onclick="showSessionsList(); return false;">← Back</a></div>';
       html += '<div class="meta pad-sm">Found ' + (res.total||0) + ' in ' + (res.took_ms||0) + ' ms' + (res.truncated? ' (truncated)':'' ) + '</div>';
@@ -960,7 +968,7 @@ const indexHTML = `<!doctype html>
         var group = groups[g]; var key = 'search:session:'+group.sid; var collapsed = getCollapsed(key); var caret = collapsed ? '▸' : '▾';
         var startAt = startTimeForSession(group.sid);
         var sess = sessMap[group.sid];
-        var title = (sess && sess.title) || nameForSession(group.sid);
+        var title = ((sess && (sess.title||'').trim()) || titleFromHits(group.hits) || nameForSession(group.sid));
         var copyBtnId = 'copy-cmd-search-' + (group.sid||'').replace(/[^a-zA-Z0-9-]/g, '-');
         var copyBtn = (sess && sess.cwd && sess.provider === 'claude') ? ('<span id="'+copyBtnId+'" class="pill clickable ml-1" title="Copy resume command" onclick="event.stopPropagation(); copySessionCommand(\''+group.sid.replace(/'/g,"\\'")+'\', \''+sess.cwd.replace(/'/g,"\\'")+'\', \''+sess.provider+'\', \''+copyBtnId+'\'); return false;">⏯</span>') : '';
         var editBtn = '<span class="pill clickable ml-1" title="编辑标题" onclick="event.stopPropagation(); editSessionTitle(\''+ group.sid.replace(/'/g,"\\'") +'\', \''+ title.replace(/'/g,"\\'") +'\'); return false;">✏️</span>';
