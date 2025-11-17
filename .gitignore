@@ -32,3 +32,9 @@ dist/
 *.log
 AGENTS.md
 docs/
+
+# SQLite database artifacts
+vectors.db
+vectors.db-shm
+vectors.db-wal
+vectors.d*
