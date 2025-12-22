@@ -15,6 +15,19 @@ import (
 	"time"
 )
 
+// Constants for indexer configuration and limits
+const (
+    maxMessagesPerSession = 5000 // Maximum messages to keep in memory per session
+    maxTitleLen           = 80   // Maximum length for session titles before truncation
+    uuidLen               = 36   // Standard UUID string length (8-4-4-4-12 format)
+    uuidDashCount         = 4    // Number of dashes in a UUID
+    rolloutPrefix         = "rollout-" // Prefix for Codex rollout session files
+
+    // Provider identifiers
+    ProviderCodex  = "codex"
+    ProviderClaude = "claude"
+)
+
 // Message represents a single JSONL event/message extracted from Codex logs.
 type Message struct {
 	ID        string         `json:"id,omitempty"`
@@ -79,6 +92,7 @@ type Stats struct {
 	BadLines     int `json:"bad_lines,omitempty"`
 	FilesScanned int `json:"files_scanned,omitempty"`
 	LastScanMs   int `json:"last_scan_ms,omitempty"`
+	ScanErrors   int `json:"scan_errors,omitempty"` // file-level errors during scanning
 }
 
 func New(codexDir, claudeDir string) *Indexer {
@@ -134,7 +148,22 @@ func (x *Indexer) scanAll() error {
 			if id == "" {
 				id = d.Name()
 			}
-			_ = x.tailFile("codex", "", id, path)
+			// For Codex files, try to extract the UUID part from the filename
+			// Format: rollout-YYYY-MM-DDTHH-mm-ss-UUID
+			// The UUID is always the last 36 characters
+			if strings.HasPrefix(id, rolloutPrefix) && len(id) > uuidLen {
+				// Extract the last 36 characters which should be the UUID
+				possibleUUID := id[len(id)-uuidLen:]
+				// Verify it looks like a UUID (8-4-4-4-12 format)
+				if len(possibleUUID) == uuidLen && strings.Count(possibleUUID, "-") == uuidDashCount {
+					id = possibleUUID
+				}
+			}
+			if err := x.tailFile(ProviderCodex, "", id, path); err != nil {
+				x.mu.Lock()
+				x.stats.ScanErrors++
+				x.mu.Unlock()
+			}
 			files++
 		}
 		return nil
@@ -158,8 +187,12 @@ func (x *Indexer) scanAll() error {
 				if strings.HasSuffix(strings.ToLower(d.Name()), ".jsonl") {
 					sid := strings.TrimSuffix(d.Name(), filepath.Ext(d.Name()))
 					// namespace with provider to avoid collisions
-					namespaced := "claude:" + project + ":" + sid
-					_ = x.tailFile("claude", project, namespaced, path)
+					namespaced := ProviderClaude + ":" + project + ":" + sid
+					if err := x.tailFile(ProviderClaude, project, namespaced, path); err != nil {
+						x.mu.Lock()
+						x.stats.ScanErrors++
+						x.mu.Unlock()
+					}
 					files++
 				}
 				return nil
@@ -253,18 +286,33 @@ func (x *Indexer) ingestLine(provider, project, sessionID, path, line string) {
 		return
 	}
 
+	// Extract payload once for Codex messages (avoids duplication)
+	var payload map[string]any
+	messageData := raw
+	if provider == ProviderCodex {
+		if p, ok := raw["payload"].(map[string]any); ok && p != nil {
+			payload = p
+			messageData = p // Use the payload as the message data source
+		}
+	}
+
 	// attempt to map common fields
 	msg := &Message{
-		ID:        stringOr(raw["id"]),
+		ID:        stringOr(messageData["id"]),
 		SessionID: sessionID,
-		Role:      stringOr(raw["role"]),
-		Content:   extractText(raw),
-		Model:     stringOr(raw["model"]),
-		Type:      stringOr(raw["type"]),
-		ToolName:  stringOr(raw["tool_name"]),
+		Role:      stringOr(messageData["role"]),
+		Content:   extractText(messageData),
+		Model:     stringOr(messageData["model"]),
+		Type:      stringOr(messageData["type"]),
+		ToolName:  stringOr(messageData["tool_name"]),
 		Raw:       raw,
 		Source:    chooseRelSource(path, provider, x.codexDir, x.claudeDir),
 		Provider:  provider,
+	}
+
+	// Claude-specific: Fallback to UUID if ID is empty
+	if provider == ProviderClaude && msg.ID == "" {
+		msg.ID = stringOr(raw["uuid"])
 	}
 
 	if ts, ok := parseTime(raw["timestamp"], raw["ts"], raw["created_at"]); ok {
@@ -272,37 +320,44 @@ func (x *Indexer) ingestLine(provider, project, sessionID, path, line string) {
 	}
 
 	// Claude-specific extraction: nested message fields
-	if provider == "claude" {
+	if provider == ProviderClaude {
 		if mobj, ok := raw["message"].(map[string]any); ok && mobj != nil {
-			if msg.Role == "" {
-				msg.Role = stringOr(mobj["role"])
-			}
-			if msg.Model == "" {
-				msg.Model = stringOr(mobj["model"])
-			}
+			if msg.Role == "" { msg.Role = stringOr(mobj["role"]) }
+			if msg.Model == "" { msg.Model = stringOr(mobj["model"]) }
 			// Extract content text ("text" parts) and thinking ("thinking" parts)
 			textOut, thinkOut := extractClaudeSegments(mobj)
-			if strings.TrimSpace(textOut) != "" {
-				msg.Content = textOut
-			}
-			if strings.TrimSpace(thinkOut) != "" {
-				msg.Thinking = thinkOut
-			}
+			if strings.TrimSpace(textOut) != "" { msg.Content = textOut }
+			if strings.TrimSpace(thinkOut) != "" { msg.Thinking = thinkOut }
 		}
-		// For Claude: Use filename as session ID (ignore internal sessionId)
-		// This ensures resumed sessions in the same file are treated as one session
-		// msg.SessionID is already set to sessionID (file-based) at the top
-
+		// Normalize session id to prefer nested sessionId if present
+		if sid := stringOr(raw["sessionId"]); sid != "" {
+			msg.SessionID = ProviderClaude + ":" + project + ":" + sid
+		}
+		// For summaries, update session title
 		if strings.ToLower(msg.Type) == "summary" {
 			if s := stringOr(raw["summary"]); s != "" {
 				x.mu.Lock()
-				if sess := x.sessions[sessionID]; sess != nil {
+				if sess := x.sessions[msg.SessionID]; sess != nil {
 					if !sess.hasContent && !sess.hasSummary && strings.TrimSpace(sess.Title) == "" {
 						sess.Title = trimTitle(s)
 						sess.hasSummary = true
 					}
 				}
 				x.mu.Unlock()
+			}
+		}
+	} else if provider == ProviderCodex {
+		// Codex: Extract session ID from payload.id if available (using already-extracted payload)
+		// This ensures consistency with the actual Codex session ID format
+		if payload != nil {
+			if sid := stringOr(payload["id"]); sid != "" {
+				msg.SessionID = sid
+			}
+		}
+		// Fallback: if raw provides a session_id, use it
+		if msg.SessionID == sessionID {
+			if sid := firstNonEmpty(stringOr(raw["session_id"]), ""); sid != "" {
+				msg.SessionID = sid
 			}
 		}
 	} else {
@@ -332,7 +387,17 @@ func (x *Indexer) ingestLine(provider, project, sessionID, path, line string) {
 	}
 	// detect and set CWD the first time we see it
 	if s.CWD == "" {
-		if cwd := extractCWD(raw); strings.TrimSpace(cwd) != "" {
+		cwd := extractCWD(raw)
+
+		// For Codex, also try to extract CWD from the message content
+		if cwd == "" && provider == ProviderCodex && msg.Content != "" {
+			// Look for <cwd>...</cwd> in the content text
+			if cwdTag := between(msg.Content, "<cwd>", "</cwd>"); cwdTag != "" {
+				cwd = cwdTag
+			}
+		}
+
+		if strings.TrimSpace(cwd) != "" {
 			s.CWD = cwd
 			// compute base directory name
 			base := strings.TrimRight(cwd, "/")
@@ -391,10 +456,10 @@ func (x *Indexer) ingestLine(provider, project, sessionID, path, line string) {
 		}
 	}
 
-	// append message (cap in memory per session to 5k for safety)
+	// append message (cap in memory per session for safety)
 	x.messages[sID] = append(x.messages[sID], msg)
-	if len(x.messages[sID]) > 5000 {
-		x.messages[sID] = x.messages[sID][len(x.messages[sID])-5000:]
+	if len(x.messages[sID]) > maxMessagesPerSession {
+		x.messages[sID] = x.messages[sID][len(x.messages[sID])-maxMessagesPerSession:]
 	}
 
 	x.stats.TotalMessages++
