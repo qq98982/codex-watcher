@@ -10,6 +10,10 @@ import (
 	"encoding/json"
 )
 
+// SessionFilter is a function that returns true if a session should be hidden/filtered out.
+// Can be set by the API layer to implement filtering logic.
+var SessionFilter func(s indexer.Session) bool
+
 // Package search provides a minimal zero-dependency, in-memory search engine
 // over the indexer's messages. It implements a basic Google-style query
 // parser with AND/OR, phrase, exclude, field filters, regex, and simple
@@ -142,6 +146,16 @@ func Exec(idx *indexer.Indexer, q Query, limit, offset int) Response {
 
 	// sessions lookup for CWD filters
 	sessions := idx.Sessions()
+	// Apply session filter if configured (e.g., to hide plugin intermediate sessions)
+	if SessionFilter != nil {
+		filtered := make([]indexer.Session, 0, len(sessions))
+		for _, s := range sessions {
+			if !SessionFilter(s) {
+				filtered = append(filtered, s)
+			}
+		}
+		sessions = filtered
+	}
 	sessByID := make(map[string]indexer.Session, len(sessions))
 	for _, s := range sessions {
 		sessByID[s.ID] = s

@@ -13,6 +13,17 @@ import (
     "codex-watcher/internal/exporter"
 )
 
+// shouldHideSession returns true if a session should be hidden from the UI and search results.
+// This excludes plugin-related intermediate sessions that are not final results.
+func shouldHideSession(s indexer.Session) bool {
+    // Hide sessions under thedotmack plugin path
+    if strings.Contains(s.CWD, "/.claude/plugins/marketplaces/thedotmack") {
+        return true
+    }
+    // Add more filter patterns here as needed
+    return false
+}
+
 var funcMap = template.FuncMap{
     "toJSON": func(v any) template.JS {
         b, _ := json.Marshal(v)
@@ -21,13 +32,22 @@ var funcMap = template.FuncMap{
 }
 
 func AttachRoutes(mux *http.ServeMux, idx *indexer.Indexer) {
+    // Set up session filter for search functionality
+    search.SessionFilter = shouldHideSession
     // UI
     mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
         tmpl := template.Must(template.New("index").Funcs(funcMap).Parse(indexHTML))
+        allSessions := idx.Sessions()
+        filtered := make([]indexer.Session, 0, len(allSessions))
+        for _, s := range allSessions {
+            if !shouldHideSession(s) {
+                filtered = append(filtered, s)
+            }
+        }
         data := struct {
             Sessions []indexer.Session
             Stats    indexer.Stats
-        }{Sessions: idx.Sessions(), Stats: idx.Stats()}
+        }{Sessions: filtered, Stats: idx.Stats()}
         _ = tmpl.Execute(w, data)
     })
 
@@ -36,17 +56,16 @@ func AttachRoutes(mux *http.ServeMux, idx *indexer.Indexer) {
         src := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("source")))
         proj := strings.TrimSpace(r.URL.Query().Get("project"))
         sessions := idx.Sessions()
-        if src != "" || proj != "" {
-            filtered := make([]indexer.Session, 0, len(sessions))
-            for _, s := range sessions {
-                if src != "" && strings.ToLower(s.Provider) != src { continue }
-                if proj != "" && s.Project != proj { continue }
-                filtered = append(filtered, s)
-            }
-            writeJSON(w, 200, filtered)
-            return
+        filtered := make([]indexer.Session, 0, len(sessions))
+        for _, s := range sessions {
+            // Apply source and project filters
+            if src != "" && strings.ToLower(s.Provider) != src { continue }
+            if proj != "" && s.Project != proj { continue }
+            // Hide unwanted sessions (e.g., plugin intermediate sessions)
+            if shouldHideSession(s) { continue }
+            filtered = append(filtered, s)
         }
-        writeJSON(w, 200, sessions)
+        writeJSON(w, 200, filtered)
     })
     mux.HandleFunc("/api/messages", func(w http.ResponseWriter, r *http.Request) {
         q := r.URL.Query()
