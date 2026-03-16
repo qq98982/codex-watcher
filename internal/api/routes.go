@@ -77,7 +77,7 @@ func AttachRoutes(mux *http.ServeMux, idx *indexer.Indexer) {
                 limit = n
             }
         }
-        writeJSON(w, 200, idx.Messages(sessionID, limit))
+        writeJSON(w, 200, reorderMessagesForDisplay(idx.Messages(sessionID, limit)))
     })
     mux.HandleFunc("/api/search", func(w http.ResponseWriter, r *http.Request) {
         q := r.URL.Query()
@@ -288,6 +288,113 @@ func splitCSV(s string) []string {
     return out
 }
 
+func reorderMessagesForDisplay(msgs []*indexer.Message) []*indexer.Message {
+    if len(msgs) < 2 {
+        return append([]*indexer.Message(nil), msgs...)
+    }
+
+    callPositions := make(map[string]int)
+    for i, msg := range msgs {
+        if toolMessageType(msg) != "function_call" {
+            continue
+        }
+        callID := toolCallID(msg)
+        if callID == "" {
+            continue
+        }
+        if _, exists := callPositions[callID]; !exists {
+            callPositions[callID] = i
+        }
+    }
+    if len(callPositions) == 0 {
+        return append([]*indexer.Message(nil), msgs...)
+    }
+
+    type outputRef struct {
+        idx int
+        msg *indexer.Message
+    }
+
+    outputsByCall := make(map[string][]outputRef)
+    matchedOutputIdx := make(map[int]bool)
+    for i, msg := range msgs {
+        if toolMessageType(msg) != "function_call_output" {
+            continue
+        }
+        callID := toolCallID(msg)
+        callPos, ok := callPositions[callID]
+        if !ok || callPos >= i {
+            continue
+        }
+        outputsByCall[callID] = append(outputsByCall[callID], outputRef{idx: i, msg: msg})
+        matchedOutputIdx[i] = true
+    }
+    if len(outputsByCall) == 0 {
+        return append([]*indexer.Message(nil), msgs...)
+    }
+
+    reordered := make([]*indexer.Message, 0, len(msgs))
+    insertedByCall := make(map[string]bool)
+    for i, msg := range msgs {
+        if matchedOutputIdx[i] {
+            continue
+        }
+        reordered = append(reordered, msg)
+        if toolMessageType(msg) != "function_call" {
+            continue
+        }
+        callID := toolCallID(msg)
+        if callID == "" || insertedByCall[callID] {
+            continue
+        }
+        for _, out := range outputsByCall[callID] {
+            reordered = append(reordered, out.msg)
+        }
+        insertedByCall[callID] = true
+    }
+    return reordered
+}
+
+func toolMessageType(msg *indexer.Message) string {
+    if msg == nil {
+        return ""
+    }
+    if t := strings.ToLower(strings.TrimSpace(msg.Type)); t != "" {
+        return t
+    }
+    if data := toolMessageData(msg); data != nil {
+        return strings.ToLower(strings.TrimSpace(stringValue(data["type"])))
+    }
+    return ""
+}
+
+func toolCallID(msg *indexer.Message) string {
+    if data := toolMessageData(msg); data != nil {
+        if callID := strings.TrimSpace(stringValue(data["call_id"])); callID != "" {
+            return callID
+        }
+        if toolUseID := strings.TrimSpace(stringValue(data["tool_use_id"])); toolUseID != "" {
+            return toolUseID
+        }
+    }
+    return ""
+}
+
+func toolMessageData(msg *indexer.Message) map[string]any {
+    if msg == nil || msg.Raw == nil {
+        return nil
+    }
+    if payload, ok := msg.Raw["payload"].(map[string]any); ok && payload != nil {
+        return payload
+    }
+    return msg.Raw
+}
+
+func stringValue(v any) string {
+    s, _ := v.(string)
+    return s
+}
+
 const indexHTML = `<!doctype html>
 <html lang="en">
 <head>
@@ -313,6 +420,11 @@ const indexHTML = `<!doctype html>
     function truncate(s, n){ s=(s||'').toString(); if(s.length<=n) return s; return s.slice(0, Math.max(0,n-1)) + '…'; }
     function oneLine(s){ try{ return String(s||'').replace(/\s+/g,' ').trim(); }catch(e){ return ''} }
     function capFirst(s){ try{ s=String(s||''); if(!s) return s; return s.charAt(0).toUpperCase()+s.slice(1); }catch(e){ return s } }
+    function toolEventData(m){
+      var raw = (m && m.raw && typeof m.raw === 'object') ? m.raw : null;
+      if (raw && raw.payload && typeof raw.payload === 'object') return raw.payload;
+      return raw || {};
+    }
     function toggleOutput(id){
       var t = document.getElementById(id+':trunc');
       var f = document.getElementById(id+':full');
@@ -376,9 +488,13 @@ const indexHTML = `<!doctype html>
       } catch(e){ return false; }
     }
 
+    function supportsResumeProvider(provider){
+      return provider === 'claude' || provider === 'codex';
+    }
+
     // Build command string for resuming a session
     function buildSessionCommand(sessionId, cwd, provider){
-      if (!sessionId || !cwd) return '';
+      if (!sessionId || !cwd || !supportsResumeProvider(provider)) return '';
       // Extract short ID from full session ID
       // For Claude: "claude:-Users-...:7d4cbd61" → "7d4cbd61"
       // For Codex: usually just the session ID itself
@@ -392,7 +508,8 @@ const indexHTML = `<!doctype html>
       // Build command based on provider
       var cmd = provider === 'claude'
         ? 'claude -r ' + shortId
-        : 'codex resume ' + shortId;
+        : (provider === 'codex' ? 'codex resume ' + shortId : '');
+      if (!cmd) return '';
       // Replace /Users/<username> with ~ in cwd for shorter command
       var cwdPath = cwd;
       if (cwdPath.indexOf('/Users/') === 0) {
@@ -467,8 +584,9 @@ const indexHTML = `<!doctype html>
           return '';
         }).filter(Boolean).join('\n\n');
       } else if (m && m.raw && (m.raw.type === 'function_call' || m.type === 'function_call')) {
-        var name = (m.raw && m.raw.name) || '';
-        var args = (m.raw && m.raw.arguments);
+        var toolData = toolEventData(m);
+        var name = toolData.name || '';
+        var args = toolData.arguments;
         var obj = null;
         if (args && typeof args === 'string') { try { obj = JSON.parse(args); } catch(e) { obj = null; } }
         else if (args && typeof args === 'object') { obj = args; }
@@ -482,7 +600,8 @@ const indexHTML = `<!doctype html>
           md = '**' + (name || 'tool') + ' arguments**\n\n~~~json\n' + tryString(obj || args || m.raw) + '\n~~~';
         }
       } else if (m && m.raw && (m.raw.type === 'function_call_output' || m.type === 'function_call_output')) {
-        var out = (m.raw && m.raw.output);
+        var toolDataOut = toolEventData(m);
+        var out = toolDataOut.output;
         var textOut = '';
         var stderrOut = '';
         if (typeof out === 'string') {
@@ -546,9 +665,10 @@ const indexHTML = `<!doctype html>
         var rolePillClass = isReasoning ? 'role-assistant' : (role === 'user' ? 'role-user' : (role === 'assistant' ? 'role-assistant' : 'role-tool'));
         var tsHTML = '';
         var model = (m.model ? '<span class="pill">' + m.model + '</span>' : '');
-        var toolNameRaw = (m.raw && m.raw.name) || 'tool';
+        var toolData = toolEventData(m);
+        var toolNameRaw = toolData.name || 'tool';
         var toolName = capFirst(toolNameRaw);
-        var pillLabel = isReasoning ? 'Assistant Thinking' : (isFuncCall ? ('Tool: ' + toolName) : (isFuncOut ? ('Tool Output' + ((m.raw && m.raw.name) ? (': ' + capFirst(m.raw.name)) : '')) : (role || 'message')));
+        var pillLabel = isReasoning ? 'Assistant Thinking' : (isFuncCall ? ('Tool: ' + toolName) : (isFuncOut ? ('Tool Output' + (toolData.name ? (': ' + capFirst(toolData.name)) : '')) : (role || 'message')));
         var id2 = null;
         // Detect first Claude tool result id to place header arrow
         var firstToggleId = null;
@@ -576,13 +696,13 @@ const indexHTML = `<!doctype html>
           id2 = 'tool-' + (m.id || Math.random().toString(36).slice(2));
           var summary = '';
           if (isFuncCall) {
-            var name = (m.raw && m.raw.name) || '';
-            var args = (m.raw && m.raw.arguments);
+            var name = toolData.name || '';
+            var args = toolData.arguments;
             var obj = null; if (args && typeof args === 'string') { try{ obj = JSON.parse(args)}catch(e){} } else if (args && typeof args === 'object') { obj = args }
             var cmdLine = (obj && Array.isArray(obj.command)) ? shJoin(obj.command) : '';
             summary = cmdLine ? ('$ ' + cmdLine) : (name ? (name + ' arguments') : 'tool arguments');
           } else if (isFuncOut) {
-            var out = (m.raw && m.raw.output); var textOut=''; var stderrOut='';
+            var out = toolData.output; var textOut=''; var stderrOut='';
             if (typeof out === 'string') { try{ var p=JSON.parse(out); if(p){ if(typeof p.output==='string') textOut=p.output; if(typeof p.stderr==='string') stderrOut=p.stderr; } }catch(e){} if(!textOut) textOut=out; }
             else if (out && typeof out === 'object') { if (typeof out.output==='string') textOut=out.output; if(typeof out.stderr==='string') stderrOut=out.stderr; }
             var parts=[]; if (textOut) parts.push('stdout'); if (stderrOut) parts.push('stderr'); summary = parts.length? ('output: ' + parts.join(', ')) : 'output';
@@ -752,8 +872,9 @@ const indexHTML = `<!doctype html>
         if (!hasMeaningful) { return ''; }
       } else if (m && m.raw && (m.raw.type === 'function_call' || m.type === 'function_call')) {
         // Render function call arguments; prefer commands for shell
-        var name = (m.raw && m.raw.name) || '';
-        var args = (m.raw && m.raw.arguments);
+        var toolData2 = toolEventData(m);
+        var name = toolData2.name || '';
+        var args = toolData2.arguments;
         var obj = null;
         if (args && typeof args === 'string') { try { obj = JSON.parse(args); } catch(e) { obj = null; } }
         else if (args && typeof args === 'object') { obj = args; }
@@ -768,7 +889,8 @@ const indexHTML = `<!doctype html>
         }
       } else if (m && m.raw && (m.raw.type === 'function_call_output' || m.type === 'function_call_output')) {
         // Render function output; try to unwrap nested JSON with { output: "..." }
-        var out = (m.raw && m.raw.output);
+        var toolDataOut2 = toolEventData(m);
+        var out = toolDataOut2.output;
         var textOut = '';
         var stderrOut = '';
         if (typeof out === 'string') {
@@ -821,11 +943,11 @@ const indexHTML = `<!doctype html>
 
     function escapeHTML(s){ return (s||'').toString().replace(/[&<>"']/g, function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c]||c;}) }
     let viewMode = 'time-cwd'; // 'cwd-time' | 'time-cwd' | 'flat'
-    let collapseTools = true;
+    let collapseTools = false;
     let sessionsCache = [];
     window.pendingFocus = null; // { sessionId, messageId, lineNo }
     function setViewMode(v){ viewMode = v; try{ localStorage.setItem('viewMode', viewMode); }catch(e){} renderSessions(sessionsCache); if (currentSessionId) selectSession(currentSessionId); }
-    // No Collapse Tools toggle UI; collapseTools stays true
+    // No Collapse Tools toggle UI; tool blocks render expanded by default
 
     function getCollapsed(key){ try{ return (localStorage.getItem('collapsed:'+key)||'1')==='1'; }catch(e){ return true; } }
     function setCollapsed(key, val){ try{ localStorage.setItem('collapsed:'+key, val?'1':'0'); }catch(e){} }
@@ -990,7 +1112,7 @@ const indexHTML = `<!doctype html>
         var sess = sessMap[group.sid];
         var title = ((sess && (sess.title||'').trim()) || titleFromHits(group.hits) || nameForSession(group.sid));
         var copyBtnId = 'copy-cmd-search-' + (group.sid||'').replace(/[^a-zA-Z0-9-]/g, '-');
-        var copyBtn = (sess && sess.cwd && sess.provider === 'claude') ? ('<span id="'+copyBtnId+'" class="pill clickable ml-1" title="Copy resume command" onclick="event.stopPropagation(); copySessionCommand(\''+group.sid.replace(/'/g,"\\'")+'\', \''+sess.cwd.replace(/'/g,"\\'")+'\', \''+sess.provider+'\', \''+copyBtnId+'\'); return false;">⏯</span>') : '';
+        var copyBtn = (sess && sess.cwd && supportsResumeProvider(sess.provider)) ? ('<span id="'+copyBtnId+'" class="pill clickable ml-1" title="Copy resume command" onclick="event.stopPropagation(); copySessionCommand(\''+group.sid.replace(/'/g,"\\'")+'\', \''+sess.cwd.replace(/'/g,"\\'")+'\', \''+sess.provider+'\', \''+copyBtnId+'\'); return false;">⏯</span>') : '';
         var editBtn = '<span class="pill clickable ml-1" title="编辑标题" onclick="event.stopPropagation(); editSessionTitle(\''+ group.sid.replace(/'/g,"\\'") +'\', \''+ title.replace(/'/g,"\\'") +'\'); return false;">✏️</span>';
         var delBtn = '<span class="pill clickable delete-btn" style="color:#c33;" title="删除会话" onclick="event.stopPropagation(); deleteSession(\''+ group.sid.replace(/'/g,"\\'") +'\', \''+ title.replace(/'/g,"\\'") +'\'); return false;">×</span>';
         var groupAttrSid = escapeHTML(group.sid||'');
@@ -1194,7 +1316,7 @@ const indexHTML = `<!doctype html>
           var meta = fmtStartCountDur(it);
           var title = it.title || '(No title)';
           var copyBtnId = 'copy-cmd-' + (it.id||'').replace(/[^a-zA-Z0-9-]/g, '-');
-          var copyBtn = (it.cwd && it.provider === 'claude') ? ('<span id="'+copyBtnId+'" class="pill clickable ml-1" title="Copy resume command" onclick="event.stopPropagation(); copySessionCommand(\''+it.id.replace(/'/g,"\\'")+'\', \''+it.cwd.replace(/'/g,"\\'")+'\', \''+it.provider+'\', \''+copyBtnId+'\'); return false;">⏯</span>') : '';
+          var copyBtn = (it.cwd && supportsResumeProvider(it.provider)) ? ('<span id="'+copyBtnId+'" class="pill clickable ml-1" title="Copy resume command" onclick="event.stopPropagation(); copySessionCommand(\''+it.id.replace(/'/g,"\\'")+'\', \''+it.cwd.replace(/'/g,"\\'")+'\', \''+it.provider+'\', \''+copyBtnId+'\'); return false;">⏯</span>') : '';
           var editBtn = '<span class="pill clickable ml-1" title="编辑标题" onclick="event.stopPropagation(); editSessionTitle(\''+ it.id.replace(/'/g,"\\'") +'\', \''+ title.replace(/'/g,"\\'") +'\'); return false;">✏️</span>';
           var delBtn = '<span class="pill clickable delete-btn" style="color:#c33;" title="删除会话" onclick="event.stopPropagation(); deleteSession(\''+ it.id.replace(/'/g,"\\'") +'\', \''+ (it.title||it.id).replace(/'/g,"\\'") +'\'); return false;">×</span>';
           return '<div class="item" data-id="' + it.id + '" onclick="selectSession(\'' + it.id + '\')">'
@@ -1224,7 +1346,7 @@ const indexHTML = `<!doctype html>
               var meta = fmtStartCountDur(it);
               var title = it.title || '(No title)';
               var copyBtnId = 'copy-cmd-' + (it.id||'').replace(/[^a-zA-Z0-9-]/g, '-');
-              var copyBtn = (it.cwd && it.provider === 'claude') ? ('<span id="'+copyBtnId+'" class="pill clickable ml-1" title="Copy resume command" onclick="event.stopPropagation(); copySessionCommand(\''+it.id.replace(/'/g,"\\'")+'\', \''+it.cwd.replace(/'/g,"\\'")+'\', \''+it.provider+'\', \''+copyBtnId+'\'); return false;">⏯</span>') : '';
+              var copyBtn = (it.cwd && supportsResumeProvider(it.provider)) ? ('<span id="'+copyBtnId+'" class="pill clickable ml-1" title="Copy resume command" onclick="event.stopPropagation(); copySessionCommand(\''+it.id.replace(/'/g,"\\'")+'\', \''+it.cwd.replace(/'/g,"\\'")+'\', \''+it.provider+'\', \''+copyBtnId+'\'); return false;">⏯</span>') : '';
               var editBtn = '<span class="pill clickable ml-1" title="编辑标题" onclick="event.stopPropagation(); editSessionTitle(\''+ it.id.replace(/'/g,"\\'") +'\', \''+ title.replace(/'/g,"\\'") +'\'); return false;">✏️</span>';
               var delBtn = '<span class="pill clickable delete-btn" style="color:#c33;" title="删除会话" onclick="event.stopPropagation(); deleteSession(\''+ it.id.replace(/'/g,"\\'") +'\', \''+ (it.title||it.id).replace(/'/g,"\\'") +'\'); return false;">×</span>';
               return '<div class="item" data-id="' + it.id + '" onclick="selectSession(\'' + it.id + '\')">'
@@ -1267,7 +1389,7 @@ const indexHTML = `<!doctype html>
                   var meta = fmtStartCountDur(it);
                   var title = it.title || '(No title)';
                   var copyBtnId = 'copy-cmd-' + (it.id||'').replace(/[^a-zA-Z0-9-]/g, '-');
-                  var copyBtn = (it.cwd && it.provider === 'claude') ? ('<span id="'+copyBtnId+'" class="pill clickable ml-1" title="Copy resume command" onclick="event.stopPropagation(); copySessionCommand(\''+it.id.replace(/'/g,"\\'")+'\', \''+it.cwd.replace(/'/g,"\\'")+'\', \''+it.provider+'\', \''+copyBtnId+'\'); return false;">⏯</span>') : '';
+                  var copyBtn = (it.cwd && supportsResumeProvider(it.provider)) ? ('<span id="'+copyBtnId+'" class="pill clickable ml-1" title="Copy resume command" onclick="event.stopPropagation(); copySessionCommand(\''+it.id.replace(/'/g,"\\'")+'\', \''+it.cwd.replace(/'/g,"\\'")+'\', \''+it.provider+'\', \''+copyBtnId+'\'); return false;">⏯</span>') : '';
                   var editBtn = '<span class="pill clickable ml-1" title="编辑标题" onclick="event.stopPropagation(); editSessionTitle(\''+ it.id.replace(/'/g,"\\'") +'\', \''+ title.replace(/'/g,"\\'") +'\'); return false;">✏️</span>';
                   var delBtn = '<span class="pill clickable delete-btn" style="color:#c33;" title="删除会话" onclick="event.stopPropagation(); deleteSession(\''+ it.id.replace(/'/g,"\\'") +'\', \''+ (it.title||it.id).replace(/'/g,"\\'") +'\'); return false;">×</span>';
                   return '<div class="item" data-id="' + it.id + '" onclick="selectSession(\'' + it.id + '\')">'
