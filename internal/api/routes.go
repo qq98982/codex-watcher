@@ -1,398 +1,477 @@
 package api
 
 import (
-    "encoding/json"
-    "html/template"
-    "net/http"
-    "strconv"
-    "strings"
-    "time"
+	"encoding/json"
+	"html/template"
+	"net/http"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
 
-    "codex-watcher/internal/indexer"
-    "codex-watcher/internal/search"
-    "codex-watcher/internal/exporter"
+	"codex-watcher/internal/exporter"
+	"codex-watcher/internal/indexer"
+	"codex-watcher/internal/search"
 )
 
 // shouldHideSession returns true if a session should be hidden from the UI and search results.
 // This excludes plugin-related intermediate sessions that are not final results.
 func shouldHideSession(s indexer.Session) bool {
-    // Hide sessions under thedotmack plugin path
-    if strings.Contains(s.CWD, "/.claude/plugins/marketplaces/thedotmack") {
-        return true
-    }
-    // Add more filter patterns here as needed
-    return false
+	// Hide sessions under thedotmack plugin path
+	if strings.Contains(s.CWD, "/.claude/plugins/marketplaces/thedotmack") {
+		return true
+	}
+	// Add more filter patterns here as needed
+	return false
 }
 
 var funcMap = template.FuncMap{
-    "toJSON": func(v any) template.JS {
-        b, _ := json.Marshal(v)
-        return template.JS(b)
-    },
+	"toJSON": func(v any) template.JS {
+		b, _ := json.Marshal(v)
+		return template.JS(b)
+	},
 }
 
 func AttachRoutes(mux *http.ServeMux, idx *indexer.Indexer) {
-    // Set up session filter for search functionality
-    search.SessionFilter = shouldHideSession
-    // UI
-    mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-        tmpl := template.Must(template.New("index").Funcs(funcMap).Parse(indexHTML))
-        allSessions := idx.Sessions()
-        filtered := make([]indexer.Session, 0, len(allSessions))
-        for _, s := range allSessions {
-            if !shouldHideSession(s) {
-                filtered = append(filtered, s)
-            }
-        }
-        data := struct {
-            Sessions []indexer.Session
-            Stats    indexer.Stats
-        }{Sessions: filtered, Stats: idx.Stats()}
-        _ = tmpl.Execute(w, data)
-    })
+	// Set up session filter for search functionality
+	search.SessionFilter = shouldHideSession
+	// UI
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		tmpl := template.Must(template.New("index").Funcs(funcMap).Parse(indexHTML))
+		filtered := visibleSessions(idx, idx.Sessions(), "", "")
+		data := struct {
+			Sessions []indexer.Session
+			Stats    indexer.Stats
+		}{Sessions: filtered, Stats: visibleStats(idx, "", "")}
+		_ = tmpl.Execute(w, data)
+	})
 
-    // API
-    mux.HandleFunc("/api/sessions", func(w http.ResponseWriter, r *http.Request) {
-        src := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("source")))
-        proj := strings.TrimSpace(r.URL.Query().Get("project"))
-        sessions := idx.Sessions()
-        filtered := make([]indexer.Session, 0, len(sessions))
-        for _, s := range sessions {
-            // Apply source and project filters
-            if src != "" && strings.ToLower(s.Provider) != src { continue }
-            if proj != "" && s.Project != proj { continue }
-            // Hide unwanted sessions (e.g., plugin intermediate sessions)
-            if shouldHideSession(s) { continue }
-            filtered = append(filtered, s)
-        }
-        writeJSON(w, 200, filtered)
-    })
-    mux.HandleFunc("/api/messages", func(w http.ResponseWriter, r *http.Request) {
-        q := r.URL.Query()
-        sessionID := q.Get("session_id")
-        limitStr := q.Get("limit")
-        limit := 200
-        if limitStr != "" {
-            if n, err := strconv.Atoi(limitStr); err == nil {
-                limit = n
-            }
-        }
-        writeJSON(w, 200, reorderMessagesForDisplay(idx.Messages(sessionID, limit)))
-    })
-    mux.HandleFunc("/api/search", func(w http.ResponseWriter, r *http.Request) {
-        q := r.URL.Query()
-        raw := q.Get("q")
-        limit := 50
-        offset := 0
-        if s := q.Get("limit"); s != "" {
-            if n, err := strconv.Atoi(s); err == nil { limit = n }
-        }
-        if s := q.Get("offset"); s != "" {
-            if n, err := strconv.Atoi(s); err == nil { offset = n }
-        }
-        // Default to searching across all fields; ignore explicit 'in' parameter
-        parsed := search.Parse(raw, "all")
-        res := search.Exec(idx, parsed, limit, offset)
-        writeJSON(w, 200, res)
-    })
-    mux.HandleFunc("/api/stats", func(w http.ResponseWriter, r *http.Request) {
-        writeJSON(w, 200, idx.Stats())
-    })
-    mux.HandleFunc("/api/fields", func(w http.ResponseWriter, r *http.Request) {
-        st := idx.Stats()
-        writeJSON(w, 200, st.Fields)
-    })
-    mux.HandleFunc("/api/reindex", func(w http.ResponseWriter, r *http.Request) {
-        if r.Method != http.MethodPost {
-            w.WriteHeader(405)
-            return
-        }
-        if err := idx.Reindex(); err != nil {
-            writeJSON(w, 500, map[string]any{"error": err.Error()})
-            return
-        }
-        writeJSON(w, 200, map[string]any{"ok": true})
-    })
+	// API
+	mux.HandleFunc("/api/sessions", func(w http.ResponseWriter, r *http.Request) {
+		src := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("source")))
+		proj := strings.TrimSpace(r.URL.Query().Get("project"))
+		filtered := visibleSessions(idx, idx.Sessions(), src, proj)
+		writeJSON(w, 200, filtered)
+	})
+	mux.HandleFunc("/api/messages", func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		sessionID := q.Get("session_id")
+		limitStr := q.Get("limit")
+		limit := 200
+		if limitStr != "" {
+			if n, err := strconv.Atoi(limitStr); err == nil {
+				limit = n
+			}
+		}
+		msgs := indexer.VisibleMessages(idx.Messages(sessionID, 0), limit)
+		writeJSON(w, 200, reorderMessagesForDisplay(msgs))
+	})
+	mux.HandleFunc("/api/search", func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		raw := q.Get("q")
+		limit := 50
+		offset := 0
+		if s := q.Get("limit"); s != "" {
+			if n, err := strconv.Atoi(s); err == nil {
+				limit = n
+			}
+		}
+		if s := q.Get("offset"); s != "" {
+			if n, err := strconv.Atoi(s); err == nil {
+				offset = n
+			}
+		}
+		// Default to searching across all fields; ignore explicit 'in' parameter
+		parsed := search.Parse(raw, "all")
+		res := search.Exec(idx, parsed, limit, offset)
+		writeJSON(w, 200, res)
+	})
+	mux.HandleFunc("/api/stats", func(w http.ResponseWriter, r *http.Request) {
+		src := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("source")))
+		proj := strings.TrimSpace(r.URL.Query().Get("project"))
+		writeJSON(w, 200, visibleStats(idx, src, proj))
+	})
+	mux.HandleFunc("/api/fields", func(w http.ResponseWriter, r *http.Request) {
+		st := idx.Stats()
+		writeJSON(w, 200, st.Fields)
+	})
+	mux.HandleFunc("/api/reindex", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.WriteHeader(405)
+			return
+		}
+		if err := idx.Reindex(); err != nil {
+			writeJSON(w, 500, map[string]any{"error": err.Error()})
+			return
+		}
+		writeJSON(w, 200, map[string]any{"ok": true})
+	})
 
-    // Delete session
-    mux.HandleFunc("/api/sessions/delete", func(w http.ResponseWriter, r *http.Request) {
-        if r.Method != http.MethodPost && r.Method != http.MethodDelete {
-            w.WriteHeader(405)
-            return
-        }
-        sessionID := r.URL.Query().Get("session_id")
-        if sessionID == "" {
-            writeJSON(w, 400, map[string]any{"error": "missing session_id"})
-            return
-        }
-        if err := idx.DeleteSession(sessionID); err != nil {
-            writeJSON(w, 500, map[string]any{"error": err.Error()})
-            return
-        }
-        writeJSON(w, 200, map[string]any{"ok": true, "deleted": sessionID})
-    })
+	// Delete session
+	mux.HandleFunc("/api/sessions/delete", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost && r.Method != http.MethodDelete {
+			w.WriteHeader(405)
+			return
+		}
+		sessionID := r.URL.Query().Get("session_id")
+		if sessionID == "" {
+			writeJSON(w, 400, map[string]any{"error": "missing session_id"})
+			return
+		}
+		if err := idx.DeleteSession(sessionID); err != nil {
+			writeJSON(w, 500, map[string]any{"error": err.Error()})
+			return
+		}
+		writeJSON(w, 200, map[string]any{"ok": true, "deleted": sessionID})
+	})
 
-    // Delete message
-    mux.HandleFunc("/api/messages/delete", func(w http.ResponseWriter, r *http.Request) {
-        if r.Method != http.MethodPost && r.Method != http.MethodDelete {
-            w.WriteHeader(405)
-            return
-        }
-        sessionID := r.URL.Query().Get("session_id")
-        messageID := r.URL.Query().Get("message_id")
-        if sessionID == "" || messageID == "" {
-            writeJSON(w, 400, map[string]any{"error": "missing session_id or message_id"})
-            return
-        }
-        if err := idx.DeleteMessage(sessionID, messageID); err != nil {
-            writeJSON(w, 500, map[string]any{"error": err.Error()})
-            return
-        }
-        writeJSON(w, 200, map[string]any{"ok": true, "deleted_message": messageID})
-    })
+	// Delete message
+	mux.HandleFunc("/api/messages/delete", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost && r.Method != http.MethodDelete {
+			w.WriteHeader(405)
+			return
+		}
+		sessionID := r.URL.Query().Get("session_id")
+		messageID := r.URL.Query().Get("message_id")
+		if sessionID == "" || messageID == "" {
+			writeJSON(w, 400, map[string]any{"error": "missing session_id or message_id"})
+			return
+		}
+		if err := idx.DeleteMessage(sessionID, messageID); err != nil {
+			writeJSON(w, 500, map[string]any{"error": err.Error()})
+			return
+		}
+		writeJSON(w, 200, map[string]any{"ok": true, "deleted_message": messageID})
+	})
 
-    // Update session title
-    mux.HandleFunc("/api/sessions/update-title", func(w http.ResponseWriter, r *http.Request) {
-        if r.Method != http.MethodPost {
-            w.WriteHeader(405)
-            return
-        }
-        sessionID := r.URL.Query().Get("session_id")
-        newTitle := r.URL.Query().Get("title")
-        if sessionID == "" {
-            writeJSON(w, 400, map[string]any{"error": "missing session_id"})
-            return
-        }
-        if newTitle == "" {
-            writeJSON(w, 400, map[string]any{"error": "missing title"})
-            return
-        }
-        if err := idx.UpdateSessionTitle(sessionID, newTitle); err != nil {
-            writeJSON(w, 500, map[string]any{"error": err.Error()})
-            return
-        }
-        writeJSON(w, 200, map[string]any{"ok": true, "title": newTitle})
-    })
+	// Update session title
+	mux.HandleFunc("/api/sessions/update-title", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.WriteHeader(405)
+			return
+		}
+		sessionID := r.URL.Query().Get("session_id")
+		newTitle := r.URL.Query().Get("title")
+		if sessionID == "" {
+			writeJSON(w, 400, map[string]any{"error": "missing session_id"})
+			return
+		}
+		if newTitle == "" {
+			writeJSON(w, 400, map[string]any{"error": "missing title"})
+			return
+		}
+		if err := idx.UpdateSessionTitle(sessionID, newTitle); err != nil {
+			writeJSON(w, 500, map[string]any{"error": err.Error()})
+			return
+		}
+		writeJSON(w, 200, map[string]any{"ok": true, "title": newTitle})
+	})
 
-    // Export: single session
-    mux.HandleFunc("/api/export/session", func(w http.ResponseWriter, r *http.Request) {
-        q := r.URL.Query()
-        sessionID := q.Get("session_id")
-        if sessionID == "" { writeJSON(w, 400, map[string]any{"error":"missing session_id"}); return }
-        format := q.Get("format")
-        if format == "" { format = "md" }
-        // filters
-        var f exporter.Filters
-        // policy toggles (default exclude)
-        f.ExcludeShellCalls = true
-        f.ExcludeToolOutputs = true
-        if s := strings.TrimSpace(q.Get("exclude_shell")); s != "" {
-            if s == "0" || strings.EqualFold(s, "false") { f.ExcludeShellCalls = false }
-        }
-        if s := strings.TrimSpace(q.Get("exclude_tool_outputs")); s != "" {
-            if s == "0" || strings.EqualFold(s, "false") { f.ExcludeToolOutputs = false }
-        }
-        if v := q.Get("text_only"); v != "" {
-            if v == "1" || v == "true" { f.TextOnly = true }
-        }
-        if v := q.Get("include_roles"); v != "" {
-            f.IncludeRoles = splitCSV(v)
-        }
-        if v := q.Get("include_types"); v != "" {
-            f.IncludeTypes = splitCSV(v)
-        }
-        if v := q.Get("limit"); v != "" {
-            if n, err := strconv.Atoi(v); err == nil { f.MaxMessages = n }
-        }
-        // lookup session for filename/meta
-        var sess indexer.Session
-        for _, s := range idx.Sessions() { if s.ID == sessionID { sess = s; break } }
-        if sess.ID == "" { writeJSON(w, 404, map[string]any{"error":"session not found"}); return }
+	// Export: single session
+	mux.HandleFunc("/api/export/session", func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		sessionID := q.Get("session_id")
+		if sessionID == "" {
+			writeJSON(w, 400, map[string]any{"error": "missing session_id"})
+			return
+		}
+		format := q.Get("format")
+		if format == "" {
+			format = "md"
+		}
+		// filters
+		var f exporter.Filters
+		// policy toggles (default exclude)
+		f.ExcludeShellCalls = true
+		f.ExcludeToolOutputs = true
+		if s := strings.TrimSpace(q.Get("exclude_shell")); s != "" {
+			if s == "0" || strings.EqualFold(s, "false") {
+				f.ExcludeShellCalls = false
+			}
+		}
+		if s := strings.TrimSpace(q.Get("exclude_tool_outputs")); s != "" {
+			if s == "0" || strings.EqualFold(s, "false") {
+				f.ExcludeToolOutputs = false
+			}
+		}
+		if v := q.Get("text_only"); v != "" {
+			if v == "1" || v == "true" {
+				f.TextOnly = true
+			}
+		}
+		if v := q.Get("include_roles"); v != "" {
+			f.IncludeRoles = splitCSV(v)
+		}
+		if v := q.Get("include_types"); v != "" {
+			f.IncludeTypes = splitCSV(v)
+		}
+		if v := q.Get("limit"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil {
+				f.MaxMessages = n
+			}
+		}
+		// lookup session for filename/meta
+		var sess indexer.Session
+		for _, s := range idx.Sessions() {
+			if s.ID == sessionID {
+				sess = s
+				break
+			}
+		}
+		if sess.ID == "" {
+			writeJSON(w, 404, map[string]any{"error": "session not found"})
+			return
+		}
 
-        // headers
-        switch format {
-        case "jsonl":
-            w.Header().Set("Content-Type", "application/x-ndjson; charset=utf-8")
-        case "json":
-            w.Header().Set("Content-Type", "application/json; charset=utf-8")
-        case "txt":
-            w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-        default:
-            w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
-            format = "md"
-        }
-        w.Header().Set("X-Content-Type-Options", "nosniff")
-        w.Header().Set("Content-Disposition", "attachment; filename=\""+ exporter.BuildAttachmentName(sess, format) +"\"")
+		// headers
+		switch format {
+		case "jsonl":
+			w.Header().Set("Content-Type", "application/x-ndjson; charset=utf-8")
+		case "json":
+			w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		case "txt":
+			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		default:
+			w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+			format = "md"
+		}
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("Content-Disposition", "attachment; filename=\""+exporter.BuildAttachmentName(sess, format)+"\"")
 
-        n, err := exporter.WriteSession(w, idx, sessionID, format, f)
-        if err != nil {
-            // best effort error write
-            w.WriteHeader(500)
-            _, _ = w.Write([]byte("export error: "+err.Error()))
-            return
-        }
-        if n == 0 {
-            // No content — easier for clients to detect
-            w.Header().Set("X-Export-Empty", "1")
-        }
-    })
+		n, err := exporter.WriteSession(w, idx, sessionID, format, f)
+		if err != nil {
+			// best effort error write
+			w.WriteHeader(500)
+			_, _ = w.Write([]byte("export error: " + err.Error()))
+			return
+		}
+		if n == 0 {
+			// No content — easier for clients to detect
+			w.Header().Set("X-Export-Empty", "1")
+		}
+	})
 
-    // Export: by directory (markdown, all types)
-    mux.HandleFunc("/api/export/by_dir", func(w http.ResponseWriter, r *http.Request) {
-        q := r.URL.Query()
-        cwd := q.Get("cwd")
-        if cwd == "" { writeJSON(w, 400, map[string]any{"error":"missing cwd"}); return }
-        // optional dates
-        var after, before time.Time
-        if s := q.Get("after"); s != "" {
-            if t, err := time.Parse(time.RFC3339, s); err == nil { after = t }
-        }
-        if s := q.Get("before"); s != "" {
-            if t, err := time.Parse(time.RFC3339, s); err == nil { before = t }
-        }
-        // policy toggles (default exclude)
-        var ef exporter.Filters
-        ef.ExcludeShellCalls = true
-        ef.ExcludeToolOutputs = true
-        if s := strings.TrimSpace(q.Get("exclude_shell")); s != "" {
-            if s == "0" || strings.EqualFold(s, "false") { ef.ExcludeShellCalls = false }
-        }
-        if s := strings.TrimSpace(q.Get("exclude_tool_outputs")); s != "" {
-            if s == "0" || strings.EqualFold(s, "false") { ef.ExcludeToolOutputs = false }
-        }
-        // headers — always markdown
-        w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
-        w.Header().Set("X-Content-Type-Options", "nosniff")
-        w.Header().Set("Content-Disposition", "attachment; filename=\""+ exporter.BuildDirAttachmentName(cwd, "all_md", "md") +"\"")
+	// Export: by directory (markdown, all types)
+	mux.HandleFunc("/api/export/by_dir", func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		cwd := q.Get("cwd")
+		if cwd == "" {
+			writeJSON(w, 400, map[string]any{"error": "missing cwd"})
+			return
+		}
+		// optional dates
+		var after, before time.Time
+		if s := q.Get("after"); s != "" {
+			if t, err := time.Parse(time.RFC3339, s); err == nil {
+				after = t
+			}
+		}
+		if s := q.Get("before"); s != "" {
+			if t, err := time.Parse(time.RFC3339, s); err == nil {
+				before = t
+			}
+		}
+		// policy toggles (default exclude)
+		var ef exporter.Filters
+		ef.ExcludeShellCalls = true
+		ef.ExcludeToolOutputs = true
+		if s := strings.TrimSpace(q.Get("exclude_shell")); s != "" {
+			if s == "0" || strings.EqualFold(s, "false") {
+				ef.ExcludeShellCalls = false
+			}
+		}
+		if s := strings.TrimSpace(q.Get("exclude_tool_outputs")); s != "" {
+			if s == "0" || strings.EqualFold(s, "false") {
+				ef.ExcludeToolOutputs = false
+			}
+		}
+		// headers — always markdown
+		w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("Content-Disposition", "attachment; filename=\""+exporter.BuildDirAttachmentName(cwd, "all_md", "md")+"\"")
 
-        n, err := exporter.WriteByDirAllMarkdown(w, idx, cwd, after, before, ef)
-        if err != nil { w.WriteHeader(500); _, _ = w.Write([]byte("export error: "+err.Error())); return }
-        if n == 0 { w.Header().Set("X-Export-Empty", "1") }
-    })
+		n, err := exporter.WriteByDirAllMarkdown(w, idx, cwd, after, before, ef)
+		if err != nil {
+			w.WriteHeader(500)
+			_, _ = w.Write([]byte("export error: " + err.Error()))
+			return
+		}
+		if n == 0 {
+			w.Header().Set("X-Export-Empty", "1")
+		}
+	})
+}
+
+func visibleSessions(idx *indexer.Indexer, sessions []indexer.Session, source string, project string) []indexer.Session {
+	filtered := make([]indexer.Session, 0, len(sessions))
+	for _, s := range sessions {
+		if source != "" && strings.ToLower(s.Provider) != source {
+			continue
+		}
+		if project != "" && s.Project != project {
+			continue
+		}
+		if shouldHideSession(s) {
+			continue
+		}
+		visibleMsgs := indexer.VisibleMessages(idx.Messages(s.ID, 0), 0)
+		view, ok := indexer.SessionView(s, visibleMsgs)
+		if !ok {
+			continue
+		}
+		filtered = append(filtered, view)
+	}
+	sort.Slice(filtered, func(i, j int) bool {
+		return filtered[i].LastAt.After(filtered[j].LastAt)
+	})
+	return filtered
+}
+
+func visibleStats(idx *indexer.Indexer, source string, project string) indexer.Stats {
+	stats := idx.Stats()
+	stats.TotalMessages = 0
+	stats.TotalSessions = 0
+	stats.ByRole = make(map[string]int)
+	stats.ByModel = make(map[string]int)
+
+	sessions := visibleSessions(idx, idx.Sessions(), source, project)
+	stats.TotalSessions = len(sessions)
+	for _, s := range sessions {
+		stats.TotalMessages += s.MessageCount
+		for role, count := range s.Roles {
+			stats.ByRole[role] += count
+		}
+		for model, count := range s.Models {
+			stats.ByModel[model] += count
+		}
+	}
+	return stats
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
-    w.Header().Set("Content-Type", "application/json")
-    w.WriteHeader(status)
-    enc := json.NewEncoder(w)
-    enc.SetEscapeHTML(false)
-    _ = enc.Encode(v)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	enc := json.NewEncoder(w)
+	enc.SetEscapeHTML(false)
+	_ = enc.Encode(v)
 }
 
 func splitCSV(s string) []string {
-    out := []string{}
-    for _, p := range strings.Split(s, ",") {
-        p = strings.TrimSpace(p)
-        if p != "" { out = append(out, p) }
-    }
-    return out
+	out := []string{}
+	for _, p := range strings.Split(s, ",") {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func reorderMessagesForDisplay(msgs []*indexer.Message) []*indexer.Message {
-    if len(msgs) < 2 {
-        return append([]*indexer.Message(nil), msgs...)
-    }
+	if len(msgs) < 2 {
+		return append([]*indexer.Message(nil), msgs...)
+	}
 
-    callPositions := make(map[string]int)
-    for i, msg := range msgs {
-        if toolMessageType(msg) != "function_call" {
-            continue
-        }
-        callID := toolCallID(msg)
-        if callID == "" {
-            continue
-        }
-        if _, exists := callPositions[callID]; !exists {
-            callPositions[callID] = i
-        }
-    }
-    if len(callPositions) == 0 {
-        return append([]*indexer.Message(nil), msgs...)
-    }
+	callPositions := make(map[string]int)
+	for i, msg := range msgs {
+		if toolMessageType(msg) != "function_call" {
+			continue
+		}
+		callID := toolCallID(msg)
+		if callID == "" {
+			continue
+		}
+		if _, exists := callPositions[callID]; !exists {
+			callPositions[callID] = i
+		}
+	}
+	if len(callPositions) == 0 {
+		return append([]*indexer.Message(nil), msgs...)
+	}
 
-    type outputRef struct {
-        idx int
-        msg *indexer.Message
-    }
+	type outputRef struct {
+		idx int
+		msg *indexer.Message
+	}
 
-    outputsByCall := make(map[string][]outputRef)
-    matchedOutputIdx := make(map[int]bool)
-    for i, msg := range msgs {
-        if toolMessageType(msg) != "function_call_output" {
-            continue
-        }
-        callID := toolCallID(msg)
-        callPos, ok := callPositions[callID]
-        if !ok || callPos >= i {
-            continue
-        }
-        outputsByCall[callID] = append(outputsByCall[callID], outputRef{idx: i, msg: msg})
-        matchedOutputIdx[i] = true
-    }
-    if len(outputsByCall) == 0 {
-        return append([]*indexer.Message(nil), msgs...)
-    }
+	outputsByCall := make(map[string][]outputRef)
+	matchedOutputIdx := make(map[int]bool)
+	for i, msg := range msgs {
+		if toolMessageType(msg) != "function_call_output" {
+			continue
+		}
+		callID := toolCallID(msg)
+		callPos, ok := callPositions[callID]
+		if !ok || callPos >= i {
+			continue
+		}
+		outputsByCall[callID] = append(outputsByCall[callID], outputRef{idx: i, msg: msg})
+		matchedOutputIdx[i] = true
+	}
+	if len(outputsByCall) == 0 {
+		return append([]*indexer.Message(nil), msgs...)
+	}
 
-    reordered := make([]*indexer.Message, 0, len(msgs))
-    insertedByCall := make(map[string]bool)
-    for i, msg := range msgs {
-        if matchedOutputIdx[i] {
-            continue
-        }
-        reordered = append(reordered, msg)
-        if toolMessageType(msg) != "function_call" {
-            continue
-        }
-        callID := toolCallID(msg)
-        if callID == "" || insertedByCall[callID] {
-            continue
-        }
-        for _, out := range outputsByCall[callID] {
-            reordered = append(reordered, out.msg)
-        }
-        insertedByCall[callID] = true
-    }
-    return reordered
+	reordered := make([]*indexer.Message, 0, len(msgs))
+	insertedByCall := make(map[string]bool)
+	for i, msg := range msgs {
+		if matchedOutputIdx[i] {
+			continue
+		}
+		reordered = append(reordered, msg)
+		if toolMessageType(msg) != "function_call" {
+			continue
+		}
+		callID := toolCallID(msg)
+		if callID == "" || insertedByCall[callID] {
+			continue
+		}
+		for _, out := range outputsByCall[callID] {
+			reordered = append(reordered, out.msg)
+		}
+		insertedByCall[callID] = true
+	}
+	return reordered
 }
 
 func toolMessageType(msg *indexer.Message) string {
-    if msg == nil {
-        return ""
-    }
-    if t := strings.ToLower(strings.TrimSpace(msg.Type)); t != "" {
-        return t
-    }
-    if data := toolMessageData(msg); data != nil {
-        return strings.ToLower(strings.TrimSpace(stringValue(data["type"])))
-    }
-    return ""
+	if msg == nil {
+		return ""
+	}
+	if t := strings.ToLower(strings.TrimSpace(msg.Type)); t != "" {
+		return t
+	}
+	if data := toolMessageData(msg); data != nil {
+		return strings.ToLower(strings.TrimSpace(stringValue(data["type"])))
+	}
+	return ""
 }
 
 func toolCallID(msg *indexer.Message) string {
-    if data := toolMessageData(msg); data != nil {
-        if callID := strings.TrimSpace(stringValue(data["call_id"])); callID != "" {
-            return callID
-        }
-        if toolUseID := strings.TrimSpace(stringValue(data["tool_use_id"])); toolUseID != "" {
-            return toolUseID
-        }
-    }
-    return ""
+	if data := toolMessageData(msg); data != nil {
+		if callID := strings.TrimSpace(stringValue(data["call_id"])); callID != "" {
+			return callID
+		}
+		if toolUseID := strings.TrimSpace(stringValue(data["tool_use_id"])); toolUseID != "" {
+			return toolUseID
+		}
+	}
+	return ""
 }
 
 func toolMessageData(msg *indexer.Message) map[string]any {
-    if msg == nil || msg.Raw == nil {
-        return nil
-    }
-    if payload, ok := msg.Raw["payload"].(map[string]any); ok && payload != nil {
-        return payload
-    }
-    return msg.Raw
+	if msg == nil || msg.Raw == nil {
+		return nil
+	}
+	if payload, ok := msg.Raw["payload"].(map[string]any); ok && payload != nil {
+		return payload
+	}
+	return msg.Raw
 }
 
 func stringValue(v any) string {
-    s, _ := v.(string)
-    return s
+	s, _ := v.(string)
+	return s
 }
 
 const indexHTML = `<!doctype html>

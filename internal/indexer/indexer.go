@@ -17,15 +17,15 @@ import (
 
 // Constants for indexer configuration and limits
 const (
-    maxMessagesPerSession = 5000 // Maximum messages to keep in memory per session
-    maxTitleLen           = 80   // Maximum length for session titles before truncation
-    uuidLen               = 36   // Standard UUID string length (8-4-4-4-12 format)
-    uuidDashCount         = 4    // Number of dashes in a UUID
-    rolloutPrefix         = "rollout-" // Prefix for Codex rollout session files
+	maxMessagesPerSession = 5000       // Maximum messages to keep in memory per session
+	maxTitleLen           = 80         // Maximum length for session titles before truncation
+	uuidLen               = 36         // Standard UUID string length (8-4-4-4-12 format)
+	uuidDashCount         = 4          // Number of dashes in a UUID
+	rolloutPrefix         = "rollout-" // Prefix for Codex rollout session files
 
-    // Provider identifiers
-    ProviderCodex  = "codex"
-    ProviderClaude = "claude"
+	// Provider identifiers
+	ProviderCodex  = "codex"
+	ProviderClaude = "claude"
 )
 
 // Message represents a single JSONL event/message extracted from Codex logs.
@@ -322,12 +322,20 @@ func (x *Indexer) ingestLine(provider, project, sessionID, path, line string) {
 	// Claude-specific extraction: nested message fields
 	if provider == ProviderClaude {
 		if mobj, ok := raw["message"].(map[string]any); ok && mobj != nil {
-			if msg.Role == "" { msg.Role = stringOr(mobj["role"]) }
-			if msg.Model == "" { msg.Model = stringOr(mobj["model"]) }
+			if msg.Role == "" {
+				msg.Role = stringOr(mobj["role"])
+			}
+			if msg.Model == "" {
+				msg.Model = stringOr(mobj["model"])
+			}
 			// Extract content text ("text" parts) and thinking ("thinking" parts)
 			textOut, thinkOut := extractClaudeSegments(mobj)
-			if strings.TrimSpace(textOut) != "" { msg.Content = textOut }
-			if strings.TrimSpace(thinkOut) != "" { msg.Thinking = thinkOut }
+			if strings.TrimSpace(textOut) != "" {
+				msg.Content = textOut
+			}
+			if strings.TrimSpace(thinkOut) != "" {
+				msg.Thinking = thinkOut
+			}
 		}
 		// Normalize session id to prefer nested sessionId if present
 		if sid := stringOr(raw["sessionId"]); sid != "" {
@@ -413,12 +421,23 @@ func (x *Indexer) ingestLine(provider, project, sessionID, path, line string) {
 	// derive a human-friendly session title if missing
 	// Priority: custom title (from .meta.json) > Claude summary > explicit title > first message
 	// Note: custom titles are loaded via loadSessionMetadata and have highest priority
-	if s.Title == "" {
+	currentFallbackTitle := ""
+	if fallback := fallbackTitleFromSession(s); fallback != "" {
+		currentFallbackTitle = trimTitle(fallback)
+	}
+	if s.Title == "" || (currentFallbackTitle != "" && strings.TrimSpace(s.Title) == currentFallbackTitle) {
 		if t := normalizeTitleCandidate(stringOr(raw["title"]), s); t != "" {
 			s.Title = t
 		} else if t := normalizeTitleCandidate(msg.Content, s); t != "" {
 			s.Title = t
-		} else if fallback := fallbackTitleFromSession(s); fallback != "" {
+		} else if s.Title == "" {
+			if fallback := fallbackTitleFromSession(s); fallback != "" {
+				s.Title = trimTitle(fallback)
+			}
+		}
+	}
+	if s.Title == "" {
+		if fallback := fallbackTitleFromSession(s); fallback != "" {
 			s.Title = trimTitle(fallback)
 		}
 	}
@@ -842,7 +861,7 @@ func normalizeTitleCandidate(candidate string, sess *Session) string {
 	if sess != nil && strings.EqualFold(strings.TrimSpace(sess.ID), cand) {
 		return ""
 	}
-	if looksLikeEnvironmentContext(cand) || looksLikeGeneratedIdentifier(cand) {
+	if looksLikeEnvironmentContext(cand) || looksLikeGeneratedIdentifier(cand) || looksLikeMemoryIntermediateText(cand) {
 		return ""
 	}
 	return trimTitle(cand)

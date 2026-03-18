@@ -1,8 +1,12 @@
 package api
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"codex-watcher/internal/indexer"
 )
@@ -104,5 +108,78 @@ func testToolMessage(id, typ, callID string) *indexer.Message {
 			"type":    "response_item",
 			"payload": payload,
 		},
+	}
+}
+
+func TestAPIHidesMemoryMessagesFromSessionsAndMessages(t *testing.T) {
+	idx := indexer.New("/tmp/.codex", "")
+	now := time.Date(2026, time.March, 18, 12, 0, 0, 0, time.UTC)
+
+	idx.IngestForTest("s-visible", map[string]any{
+		"id":         "mem-1",
+		"session_id": "s-visible",
+		"role":       "user",
+		"content":    "Hello memory agent, you are continuing to observe the primary Claude session.",
+		"cwd":        "/workspace/app",
+		"ts":         now.Format(time.RFC3339),
+	})
+	idx.IngestForTest("s-visible", map[string]any{
+		"id":         "msg-1",
+		"session_id": "s-visible",
+		"role":       "user",
+		"content":    "Ship the dashboard fix today",
+		"cwd":        "/workspace/app",
+		"ts":         now.Add(time.Minute).Format(time.RFC3339),
+	})
+	idx.IngestForTest("s-hidden", map[string]any{
+		"id":         "mem-2",
+		"session_id": "s-hidden",
+		"role":       "assistant",
+		"content":    "MEMORY PROCESSING CONTINUED",
+		"cwd":        "/workspace/hidden",
+		"ts":         now.Format(time.RFC3339),
+	})
+
+	mux := http.NewServeMux()
+	AttachRoutes(mux, idx)
+
+	msgReq := httptest.NewRequest(http.MethodGet, "/api/messages?session_id=s-visible", nil)
+	msgRec := httptest.NewRecorder()
+	mux.ServeHTTP(msgRec, msgReq)
+	if msgRec.Code != http.StatusOK {
+		t.Fatalf("/api/messages status=%d want %d", msgRec.Code, http.StatusOK)
+	}
+	var msgs []indexer.Message
+	if err := json.NewDecoder(msgRec.Body).Decode(&msgs); err != nil {
+		t.Fatalf("decode /api/messages: %v", err)
+	}
+	if len(msgs) != 1 {
+		t.Fatalf("visible session should expose 1 message after filtering, got %d", len(msgs))
+	}
+	if msgs[0].ID != "msg-1" {
+		t.Fatalf("visible message id=%q want %q", msgs[0].ID, "msg-1")
+	}
+
+	sessReq := httptest.NewRequest(http.MethodGet, "/api/sessions", nil)
+	sessRec := httptest.NewRecorder()
+	mux.ServeHTTP(sessRec, sessReq)
+	if sessRec.Code != http.StatusOK {
+		t.Fatalf("/api/sessions status=%d want %d", sessRec.Code, http.StatusOK)
+	}
+	var sessions []indexer.Session
+	if err := json.NewDecoder(sessRec.Body).Decode(&sessions); err != nil {
+		t.Fatalf("decode /api/sessions: %v", err)
+	}
+	if len(sessions) != 1 {
+		t.Fatalf("expected only the visible session to remain, got %d sessions", len(sessions))
+	}
+	if sessions[0].ID != "s-visible" {
+		t.Fatalf("session id=%q want %q", sessions[0].ID, "s-visible")
+	}
+	if sessions[0].Title != "Ship the dashboard fix today" {
+		t.Fatalf("session title=%q want %q", sessions[0].Title, "Ship the dashboard fix today")
+	}
+	if sessions[0].MessageCount != 1 {
+		t.Fatalf("session message_count=%d want 1", sessions[0].MessageCount)
 	}
 }

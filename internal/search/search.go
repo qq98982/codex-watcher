@@ -1,13 +1,13 @@
 package search
 
 import (
+	"encoding/json"
 	"regexp"
 	"sort"
 	"strings"
 	"time"
 
 	"codex-watcher/internal/indexer"
-	"encoding/json"
 )
 
 // SessionFilter is a function that returns true if a session should be hidden/filtered out.
@@ -170,10 +170,14 @@ func Exec(idx *indexer.Indexer, q Query, limit, offset int) Response {
 	// Decide which textual fields are searched under current scope.
 	// For each message we'll build target strings lazily.
 	for _, s := range sessions {
-		msgs := idx.Messages(s.ID, 0)
-		for _, m := range msgs {
+		visibleMsgs := indexer.VisibleMessages(idx.Messages(s.ID, 0), 0)
+		sessionView, ok := indexer.SessionView(s, visibleMsgs)
+		if !ok {
+			continue
+		}
+		for _, m := range visibleMsgs {
 			// Apply field filters first (role/type/model/cwd/cwd_base)
-			if !matchesFieldFilters(q, m, sessByID[m.SessionID]) {
+			if !matchesFieldFilters(q, m, sessionView) {
 				continue
 			}
 			// Evaluate text groups
@@ -189,7 +193,7 @@ func Exec(idx *indexer.Indexer, q Query, limit, offset int) Response {
 			res := Result{
 				SessionID:    m.SessionID,
 				MessageID:    m.ID,
-				SessionTitle: displayTitleForSession(sessByID[m.SessionID]),
+				SessionTitle: displayTitleForSession(sessionView),
 				Role:         m.Role,
 				Type:         m.Type,
 				Model:        m.Model,
