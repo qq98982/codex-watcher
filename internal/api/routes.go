@@ -732,7 +732,7 @@ const indexHTML = `<!doctype html>
     async function selectSession(id) {
       currentSessionId = id;
       try{ localStorage.setItem('last:'+ (currentSource||'codex'), id); }catch(e){}
-      const res = await fetch('/api/messages?session_id=' + encodeURIComponent(id) + '&limit=500');
+      const res = await fetch('/api/messages?session_id=' + encodeURIComponent(id) + '&limit=0');
       const data = await res.json();
       messagesCache = data.slice();
       const el = document.getElementById('messages');
@@ -1022,11 +1022,11 @@ const indexHTML = `<!doctype html>
 
     function escapeHTML(s){ return (s||'').toString().replace(/[&<>"']/g, function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c]||c;}) }
     let viewMode = 'time-cwd'; // 'cwd-time' | 'time-cwd' | 'flat'
-    let collapseTools = false;
+    let collapseTools = true;
     let sessionsCache = [];
     window.pendingFocus = null; // { sessionId, messageId, lineNo }
     function setViewMode(v){ viewMode = v; try{ localStorage.setItem('viewMode', viewMode); }catch(e){} renderSessions(sessionsCache); if (currentSessionId) selectSession(currentSessionId); }
-    // No Collapse Tools toggle UI; tool blocks render expanded by default
+    // No Collapse Tools toggle UI; tool blocks render collapsed by default
 
     function getCollapsed(key){ try{ return (localStorage.getItem('collapsed:'+key)||'1')==='1'; }catch(e){ return true; } }
     function setCollapsed(key, val){ try{ localStorage.setItem('collapsed:'+key, val?'1':'0'); }catch(e){} }

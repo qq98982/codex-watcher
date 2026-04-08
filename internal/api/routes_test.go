@@ -27,9 +27,9 @@ func TestIndexHTMLShowsResumeButtonForCodexSessions(t *testing.T) {
 	}
 }
 
-func TestIndexHTMLOpensToolBlocksByDefault(t *testing.T) {
-	if !strings.Contains(indexHTML, "let collapseTools = false;") {
-		t.Fatalf("indexHTML should render tool blocks expanded by default")
+func TestIndexHTMLCollapsesToolBlocksByDefault(t *testing.T) {
+	if !strings.Contains(indexHTML, "let collapseTools = true;") {
+		t.Fatalf("indexHTML should render tool blocks collapsed by default")
 	}
 
 	if !strings.Contains(indexHTML, "Show more") {
@@ -52,6 +52,15 @@ func TestIndexHTMLReadsToolFieldsFromPayload(t *testing.T) {
 		if strings.Contains(indexHTML, read) {
 			t.Fatalf("indexHTML still reads tool data from top-level raw object: %q", read)
 		}
+	}
+}
+
+func TestIndexHTMLLoadsFullVisibleSessionHistory(t *testing.T) {
+	if !strings.Contains(indexHTML, "fetch('/api/messages?session_id=' + encodeURIComponent(id) + '&limit=0')") {
+		t.Fatalf("indexHTML should request the full visible session history")
+	}
+	if strings.Contains(indexHTML, "fetch('/api/messages?session_id=' + encodeURIComponent(id) + '&limit=500')") {
+		t.Fatalf("indexHTML should not cap the session history at 500 messages")
 	}
 }
 

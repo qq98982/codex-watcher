@@ -17,11 +17,10 @@ import (
 
 // Constants for indexer configuration and limits
 const (
-	maxMessagesPerSession = 5000       // Maximum messages to keep in memory per session
-	maxTitleLen           = 80         // Maximum length for session titles before truncation
-	uuidLen               = 36         // Standard UUID string length (8-4-4-4-12 format)
-	uuidDashCount         = 4          // Number of dashes in a UUID
-	rolloutPrefix         = "rollout-" // Prefix for Codex rollout session files
+	maxTitleLen   = 80         // Maximum length for session titles before truncation
+	uuidLen       = 36         // Standard UUID string length (8-4-4-4-12 format)
+	uuidDashCount = 4          // Number of dashes in a UUID
+	rolloutPrefix = "rollout-" // Prefix for Codex rollout session files
 
 	// Provider identifiers
 	ProviderCodex  = "codex"
@@ -475,11 +474,8 @@ func (x *Indexer) ingestLine(provider, project, sessionID, path, line string) {
 		}
 	}
 
-	// append message (cap in memory per session for safety)
+	// append message; retain complete session history in memory
 	x.messages[sID] = append(x.messages[sID], msg)
-	if len(x.messages[sID]) > maxMessagesPerSession {
-		x.messages[sID] = x.messages[sID][len(x.messages[sID])-maxMessagesPerSession:]
-	}
 
 	x.stats.TotalMessages++
 	x.stats.TotalSessions = len(x.sessions)

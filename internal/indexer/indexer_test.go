@@ -355,19 +355,19 @@ func TestProviderConstants(t *testing.T) {
 	}
 }
 
-// TestMessageCap tests that message cap per session is enforced
-func TestMessageCap(t *testing.T) {
+// TestMessagesRetainEntireSession ensures older messages are not dropped from memory.
+func TestMessagesRetainEntireSession(t *testing.T) {
 	x := New("/tmp/.codex", "")
+	total := 5100
 
-	// Ingest more than maxMessagesPerSession messages
-	for i := 0; i < maxMessagesPerSession+100; i++ {
+	for i := 0; i < total; i++ {
 		line := `{"session_id":"s1","role":"user","content":"test"}`
 		x.ingestLine(ProviderCodex, "", "s1", "/tmp/.codex/sessions/s1.jsonl", line)
 	}
 
 	msgs := x.Messages("s1", 0)
-	if len(msgs) != maxMessagesPerSession {
-		t.Errorf("Messages should be capped at %d, got %d", maxMessagesPerSession, len(msgs))
+	if len(msgs) != total {
+		t.Errorf("Messages should retain all %d items, got %d", total, len(msgs))
 	}
 }
 
